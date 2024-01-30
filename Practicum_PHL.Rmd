@@ -102,7 +102,7 @@ linAssets <- read_sf('./resmartloadingzones/Curb_and_Asset_Shapefiles/linear_ass
 bookings <-read.csv("./Old_Data_for_Testing/Booking Data(1).csv")
 
 # load curb zone data
-curb_cone <-  read_json("./resmartloadingzones/curb_zones.json")
+curb_zone <-  read_json("./resmartloadingzones/curb_zones.json")
 
 # load CDS event data
 event_CDS <- read.csv("./resmartloadingzones/events_export_CDS.csv")
@@ -110,3 +110,7 @@ event_CDS <- read.csv("./resmartloadingzones/events_export_CDS.csv")
 # load regulation geojson
 regulations <- st_read("./resmartloadingzones/regulations.geojson")
 ```
+```{r}
+
+```
+
