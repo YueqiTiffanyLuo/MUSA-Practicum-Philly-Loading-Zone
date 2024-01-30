@@ -57,7 +57,6 @@ library(broom.mixed) # needed for effects plots
 library(stargazer)
 
 # functions and data directory
-#root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
 
 #source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
 
@@ -67,4 +66,34 @@ palette6 <- c("#005B96", "#FFD700", "#E63946", "#2A9D8F", "#264653", "#F0F0F0")
 palette7 <- c("#005B96", "#FFD700", "#E63946", "#2A9D8F", "#264653", "#E76F51", "#F0F0F0")
 palette8 <- c("#005B96", "#FFD700", "#E63946", "#2A9D8F", "#264653", "#E76F51", "#F4A261", "#F0F0F0")
 
+```
+
+```{r setting working directory}
+#Shengqian
+setwd("/Users/sqwang/Library/CloudStorage/OneDrive-PennO365/penn/6th/Practicum/Data")
+
+#Sam
+#setwd("")
+
+#michael
+#setwd("")
+
+#tiffany
+#setwd("")
+
+#ling
+#setwd("")
+
+linAssets <- read_sf('./resmartloadingzones/Curb_and_Asset_Shapefiles/linear_assets.shp')%>% st_transform('ESRI:102729')
+
+coords_raw <- read.csv("./Old_Data_for_Testing/zoneCoords.csv")
+# split coords
+coords_split <- strsplit(coords_raw$coords, ",")
+coords_raw$latitude <- as.numeric(sapply(coords_split, `[`, 1))
+coords_raw$longitude <- as.numeric(sapply(coords_split, `[`, 2))
+# create coords shapefile
+coords <- st_as_sf(coords_raw, coords = c("longitude", "latitude"), crs = 'ESRI:102729')
+
+# load booking data
+bookings <-read.csv("./Old_Data_for_Testing/Booking Data(1).csv")
 ```
