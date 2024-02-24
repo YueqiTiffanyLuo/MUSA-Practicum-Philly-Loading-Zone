@@ -57,6 +57,18 @@ library(ggpubr)    # plotting R^2 value on ggplot point scatter
 library(broom.mixed) # needed for effects plots
 library(stargazer)
 library(jsonlite)
+library(ggplot2)
+library(tmap)
+library(tmaptools)
+library(leaflet)
+library(raster)
+library(RColorBrewer)
+library(mapview)
+library(leaflet)
+library(plotly)
+library(ggspatial)
+
+
 #library(rjson)
 
 # functions and data directory
@@ -73,7 +85,7 @@ palette8 <- c("#005B96", "#FFD700", "#E63946", "#2A9D8F", "#264653", "#E76F51", 
 
 ```{r setting working directory}
 #Shengqian
-setwd("/Users/sqwang/Library/CloudStorage/OneDrive-PennO365/penn/6th/Practicum/Data")
+#setwd("/Users/sqwang/Library/CloudStorage/OneDrive-PennO365/penn/6th/Practicum/Data")
 
 #Sam
 #setwd("")
@@ -85,8 +97,7 @@ setwd("/Users/sqwang/Library/CloudStorage/OneDrive-PennO365/penn/6th/Practicum/D
 #setwd("")
 
 #ling
-#setwd("")
-
+setwd("/Users/lingchen/Documents/Practicum/Practicum_Philly_2024/Data")
 
 
 coords_raw <- read.csv("./Old_Data_for_Testing/zoneCoords.csv")
@@ -100,18 +111,115 @@ coords <- st_as_sf(coords_raw, coords = c("longitude", "latitude"), crs = 'ESRI:
 
 linAssets <- read_sf('./resmartloadingzones/Curb_and_Asset_Shapefiles/linear_assets.shp')%>% st_transform('ESRI:102729')
 # load booking data
-bookings <-read.csv("./Old_Data_for_Testing/Booking Data(1).csv")
+booking_data <-read.csv("./Old_Data_for_Testing/Booking Data_cleaned.geojson")
 
 # load curb zone data
 curb_zone <-  read_json("./resmartloadingzones/curb_zones.json")
 
 # load CDS event data
-event_CDS <- read.csv("./resmartloadingzones/events_export_CDS.csv")
+event_export <- read.csv("./events_export_CDS.csv")
 
 # load regulation geojson
 regulations <- st_read("./resmartloadingzones/regulations.geojson")
 ```
+
+
+## Utilization of curb zones
 ```{r}
+utilization <- booking_data %>%
+  dplyr::select(OMFCurbZoneID,EventType,ViolationType,VehicleType,TimeRequestedHour,Amount,geometry)
+```
+
+```{r timesegment}
+utilization$DwellTimeMinutes <- utilization$TimeRequestedHour * 60
+
+utilization$TimeSegment <- cut(utilization$DwellTimeMinutes,
+                        breaks = c(0, 5, 15, 30, 45, 61),
+                        labels = c("0-5", "6-15", "16-30", "31-45","46-60"),
+                        right = FALSE)
+
+utilization <- utilization %>%
+  mutate(TimeSegment = as.character(TimeSegment), # Convert factor to character
+         TimeSegment = replace_na(TimeSegment, "violation")) # Replace NA with "violation"
+
+utilization$TimeSegment <- factor(utilization$TimeSegment)
+
+utilization <- utilization %>%
+  mutate(ViolationType = ifelse(ViolationType == "", "booking", ViolationType)) 
 
 ```
+
+## Exploratory Analysis
+```{r}
+# dwell time - min
+ggplot(utilization, aes(x = DwellTimeMinutes)) + geom_histogram(bins = 50, fill = "blue", color = "black") +
+  labs(title = "Dwell Time Distribution", x = "Dwell Time (minutes)", y = "Frequency")
+
+ggplot(utilization, aes(x = TimeSegment)) +
+  geom_bar(fill = "steelblue", color = "black") + 
+  theme_minimal() + 
+  labs(title = "Counts by Time Segment", x = "Time Segment", y = "Count") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# vehicle type:commercial/medium commercial/other/truck
+ggplot(utilization, aes(x = VehicleType)) + geom_bar(fill = "green") +
+  labs(title = "Vehicle Type Distribution", x = "Vehicle Type", y = "Count")
+
+# vehicle type: car/freight/truck/van
+ggplot(utilization, aes(x = EventType)) + geom_bar(fill = "orange") +
+  labs(title = "Event Type Distribution", x = "Event Type", y = "Count")
+
+```
+
+```{r}
+# Availability of curb zones
+# vehicle count by curb zone and tiem segment
+availability_analysis <- utilization %>%
+  group_by(OMFCurbZoneID, TimeSegment) %>%
+  summarise(VehicleCount = n())
+
+ggplot(availability_analysis, aes(x = OMFCurbZoneID, y = VehicleCount, fill = TimeSegment)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(title = "Vehicle Count by Curb Zone and Time Segment", x = "Curb Zone ID", y = "Vehicle Count")
+
+# violation type distribution by curb zone
+violation_analysis <- utilization %>%
+  group_by(OMFCurbZoneID, ViolationType) %>%
+  summarise(Count = n())
+
+ggplot(violation_analysis, aes(x = OMFCurbZoneID, y = Count, fill = ViolationType)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(title = "Violation Type Distribution by Curb Zone", x = "Curb Zone ID", y = "Count")
+
+```
+
+```{r}
+utilization_sf <- st_as_sf(utilization, wkt = "geometry", crs = 4326)
+
+# distribution of Curb Zones
+ggplot() +
+  annotation_map_tile(zoom = 12) +  # Adjust the zoom level as needed
+  geom_sf(data = utilization_sf, aes(color = TimeSegment), size = 0.7) +
+  labs(title = "Spatial Distribution of Curb Zones in Philadelphia", x = "Longitude", y = "Latitude") +
+  theme_minimal()
+
+```
+
+```{r}
+leaflet(utilization_sf) %>%
+  addTiles() %>%  # Add default OpenStreetMap tiles
+  addProviderTiles(providers$Stamen.TonerLite, options = providerTileOptions(noWrap = TRUE)) %>% # Add a base map layer
+  addCircles(lng = ~st_coordinates(geometry)[, 1], lat = ~st_coordinates(geometry)[, 2], 
+             color = ~colorFactor(palette = "Dark2", domain = utilization_sf$DwellTimeMinutes)(DwellTimeMinutes), 
+             popup = ~paste("Dwell Time Minutes:", DwellTimeMinutes),
+             radius = 20) %>% # Add circles for each point
+  addLegend("bottomright", pal = colorFactor(palette = "Dark2", domain = utilization_sf$DwellTimeMinutes), 
+            values = ~DwellTimeMinutes, title = "Dwell Time Minutes", opacity = 1) %>% # Add a legend
+  setView(lng = -75.16407, lat = 39.94951, zoom = 13) # Center the map around Philadelphia
+
+
+```
+
 
