@@ -13,17 +13,11 @@ output:
 knitr::opts_chunk$set(echo = TRUE,warning = FALSE, message = FALSE)
 ```
 
-
 ## 1 Introduction
 
 Sam
 
-
 ## 2 Data Manipulation and Visualization
-
-
-
-
 
 ```{r , include=FALSE}
 
@@ -112,7 +106,7 @@ coords <- st_as_sf(coords_raw, coords = c("longitude", "latitude"), crs = 'ESRI:
 
 linAssets <- read_sf('./resmartloadingzones/Curb_and_Asset_Shapefiles/linear_assets.shp')%>% st_transform('ESRI:102729')
 # load booking data
-booking_data <-st_read("./Old_Data_for_Testing/Booking Data_cleaned.geojson")
+booking_data <-st_read("./Old_Data_for_Testing/Booking Data_times.geojson")
 
 # load curb zone data
 curb_zone <-  read_json("./resmartloadingzones/curb_zones.json")
@@ -129,8 +123,8 @@ mid_pilot <- read.xlsx("./PHL_Mid-Pilot NN Collection_2023_02.xlsx")
 
 ```
 
-
 ## Utilization of curb zones
+
 ```{r}
 utilization <- booking_data %>%
   dplyr::select(OMFCurbZoneID,EventType,ViolationType,VehicleType,TimeRequestedHour,Amount,geometry)
@@ -156,6 +150,7 @@ utilization <- utilization %>%
 ```
 
 ## Exploratory Analysis
+
 ```{r}
 # dwell time - min
 ggplot(utilization, aes(x = DwellTimeMinutes)) + geom_histogram(bins = 50, fill = "blue", color = "black") +
@@ -228,4 +223,94 @@ leaflet(utilization_sf) %>%
 
 ```
 
+### OpenStreetMap exploration
 
+The "**amenity**" types we collected were: "bar", "cafe", "fast_food", "pub", "restaurant", "college", "school", "university", "parking_space", "bank", "atm", "clinic", "hospital", "pharmacy", "community_centre", "conference_centre", "nightclub", "theatre", "police", "post_box", "post_office", "place_of_worship"
+
+The "**building**" types we collected were: "apartments", "dormitory", "hotel", "commercial", "office", "retail", "supermarket", "warehouse", "church", "college", "government", "hospital", "public", "school", "university"
+
+The "**shop**" types we collected were: "alcohol", "bakery", "beverages", "coffee", "convenience", "deli", "department_store", "general", "supermarket", "clothes", "gift"
+
+We also collected **office** building types and **land uses** but these data were not a large enough sample.
+
+```{r openstreemap location collection, message=FALSE}
+# amenities <- c("bar", "cafe", "fast_food", "pub", "restaurant", "college", "school", "university", 
+#                    "parking_space", "bank", "atm", "clinic", "hospital", "pharmacy", "community_centre", 
+#                    "conference_centre", "nightclub", "theatre", "police", "post_box", "post_office", 
+#                    "place_of_worship")
+# 
+# # Format the list: remove underscores, capitalize first letter, and put in quotes
+# formatted_list <- gsub("_", " ", amenities)
+# formatted_list <- gsub("^([a-z])", "\\U\\1", formatted_list, perl = TRUE)
+# formatted_list_1 <- paste0('"', formatted_list, '"')
+# 
+# buildings <- c("apartments", "dormitory", "hotel", "commercial", "office", 
+#                    "retail", "supermarket", "warehouse", "church", "college", 
+#                    "government", "hospital", "public", "school", "university")
+# 
+# formatted_list <- gsub("_", " ", buildings)
+# formatted_list <- gsub("^([a-z])", "\\U\\1", formatted_list, perl = TRUE)
+# formatted_list_2 <- paste0('"', formatted_list, '"')
+# 
+# shops <- c("alcohol", "bakery", "beverages", "coffee", "convenience", "deli",
+#                    "department_store", "general", "supermarket", "clothes", "gift")
+# 
+# formatted_list <- gsub("_", " ", shops)
+# formatted_list <- gsub("^([a-z])", "\\U\\1", formatted_list, perl = TRUE)
+# formatted_list_3 <- paste0('"', formatted_list, '"')
+# 
+# # Create a dataframe
+# poi_types <- data.frame(Amenities = formatted_list_1, Buildings = formatted_list_2, Shops = formatted_list_3)
+```
+
+Assuming that distance to some certain types of buildings relates to how much cars and trucks need to use loading zones there, we calculated the distance from each pilot loading zone to the three nearest of each of these types.
+
+```{r nearest neighbors, message=FALSE}
+test <- st_read("C:/Users/14145/Box/Practicum_Philly_2024/Michael/zones_nn_3.geojson")
+
+numeric <- test %>%
+  dplyr::select(-c("SmartZoneName")) %>%
+  st_drop_geometry(.) %>%
+  mutate(log10events = log10(events))
+
+#Correlation plot
+corplot <- cor(numeric)
+
+cor_df <- as.data.frame(corplot)
+
+# Extract the column values and row names
+column_name <- "log10events"  # Replace "mpg" with the column name you want to plot
+column_values <- cor_df[[column_name]]
+cor_df <- data.frame(variable = rownames(cor_df), correlation = column_values)
+
+cor_df <- filter(cor_df, variable != "events" & variable != "log10events")
+
+# Create a bar plot using ggplot2
+ggplot(cor_df, aes(x = reorder(variable, -correlation), y = correlation, fill=correlation)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Relationships with Log10 Events",
+       x = "Nearest Neighbor Variables",
+       y = "Correlation") +
+  ylim(-1,1)+
+  scale_fill_viridis_c()+
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1))
+ggplotly(p=ggplot2::last_plot())
+```
+
+```{r clear NN table}
+filter(cor_df, abs(correlation) > 0.5) %>%
+  ggplot(., aes(x = reorder(variable, -correlation), y = correlation, fill=correlation)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Strongest Relationships (>0.5) with Log10 Events",
+       x = "Nearest Neighbor Variables",
+       y = "Correlation") +
+  ylim(-1,1)+
+  scale_fill_viridis_c()+
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1))
+```
+
+Many of the strongest relationships are negative ones. In particular, decreasing correlation with the number of parking events at a loading zone come with distance from a place of worship.
+
+The positive relationships are associated with clinics and community centers.
