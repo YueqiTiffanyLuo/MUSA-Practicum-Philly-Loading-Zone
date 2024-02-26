@@ -450,3 +450,82 @@ filter(cor_df, abs(correlation) > 0.5) %>%
 Many of the strongest relationships are negative ones. In particular, decreasing correlation with the number of parking events at a loading zone come with distance from a place of worship.
 
 The positive relationships are associated with clinics and community centers.
+
+
+### Open Mobility Foundation Data Exploration
+
+
+```{r omf}
+library(httr)
+library(ggplot2)
+
+# Define the URL and headers for retrieving curb zones data
+url <- "https://creativecommons.org/licenses/by/4.0/"
+headers <- c(Accept = "application/json")
+
+# Define query parameters to filter for loading zones within the center city area
+query_params <- list(
+  include_geometry = "true",
+  city = "Philadelphia",
+  zone_type = "loading",
+  area_of_interest = "center city"
+)
+
+# Make the GET request with query parameters
+response <- GET(url, query = query_params, add_headers(.headers = headers))
+
+# Check if the request was successful (status code 200)
+if (status_code(response) == 200) {
+  # Parse the JSON response
+  curb_zones <- content(response, "parsed")
+  
+  # Check if the curb_zones object is a list and not empty
+  if (is.list(curb_zones) && length(curb_zones$data) > 0) {
+    # Extract geometry coordinates for each zone
+    all_coords <- lapply(curb_zones$data[[1]]$zones, function(zone) {
+      if ("geometry" %in% names(zone) && "coordinates" %in% names(zone$geometry)) {
+        return(zone$geometry$coordinates)
+      } else {
+        return(NULL)
+      }
+    })
+    
+    # Combine all valid coordinates into a single data frame
+    curb_zones_df <- data.frame(
+      longitude = unlist(lapply(all_coords, function(coords) coords[[1]])),
+      latitude = unlist(lapply(all_coords, function(coords) coords[[2]]))
+    )
+    
+    # Create visualizations using ggplot2
+    ggplot(curb_zones_df, aes(x = longitude, y = latitude)) +
+      geom_polygon(fill = "blue") +
+      labs(title = "Philadelphia Loading Zones in Center City Area") +
+      theme_minimal()
+  } else {
+    print("No curb zones data found.")
+  }
+} else {
+  print(paste("Error:", status_code(response)))
+}
+
+
+
+```
+
+
+
+### Next Steps
+
+1. Make a predictive model for new zone expansion:
+Predict segments of streets for the new loading zone.
+Define the dependent variable as Booking by time by length of curb.
+
+2. Articulate the rationale for putting different zones:
+Analyze factors such as traffic flow, existing loading zones, parking demand, and pedestrian activity.
+Consider input from stakeholders, including businesses, residents, and transportation authorities.
+
+3. Use scenario planning:
+Develop scenarios for placing loading zones in different locations within the project area.
+Test each scenario to evaluate its impact on traffic flow, parking availability, and pedestrian safety.
+
+
