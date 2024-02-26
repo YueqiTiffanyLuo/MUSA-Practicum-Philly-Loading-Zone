@@ -68,19 +68,19 @@ library(leaflet)
 library(plotly)
 library(ggspatial)
 library(openxlsx)
-
+library(lubridate)
 
 #library(rjson)
 
 # functions and data directory
 
-#source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
 
-palette4 <- c("#005B96", "#FFD700", "#E63946", "#F0F0F0")
-palette5 <- c("#005B96", "#FFD700", "#E63946", "#2A9D8F", "purple")
-palette6 <- c("#005B96", "#FFD700", "#E63946", "#2A9D8F", "#264653", "#F0F0F0")
-palette7 <- c("#005B96", "#FFD700", "#E63946", "#2A9D8F", "#264653", "#E76F51", "#F0F0F0")
-palette8 <- c("#005B96", "#FFD700", "#E63946", "#2A9D8F", "#264653", "#E76F51", "#F4A261", "#F0F0F0")
+palette2 <- c('#3E4A89','#1F9E89')
+palette4 <- c('#3E4A89','#1F9E89','#35B779','#B4DE2C')
+palette5 <- c('#440154','#3E4A89','#1F9E89','#35B779','#B4DE2C')
+palette6 <- c('#440154','#3E4A89','#1F9E89','#35B779','#B4DE2C','#FDE725')
+palette10 <- c('#440154','#482777','#3E4A89','#31688E','#26828E','#1F9E89','#35B779','#6DCD59','#B4DE2C','#FDE725')
 
 ```
 
@@ -124,16 +124,19 @@ event_export <- read.csv("./events_export_CDS.csv")
 regulations <- st_read("./resmartloadingzones/regulations.geojson")
 
 # load pilot data
-pre_pilot <- read.xlsx("./PHL_Pre-Pilot NN Collection Data_2022_12.xlsx")
-mid_pilot <- read.xlsx("./PHL_Mid-Pilot NN Collection_2023_02.xlsx")
+#pre_pilot <- read.xlsx("./PHL_Pre-Pilot NN Collection Data_2022_12.xlsx")
+#mid_pilot <- read.xlsx("./PHL_Mid-Pilot NN Collection_2023_02.xlsx")
 
 ```
 
-
-## Utilization of curb zones
+### old data for testing - booking data exploratory analysis
+#### Utilization of curb zones
 ```{r}
 utilization <- booking_data %>%
   dplyr::select(OMFCurbZoneID,EventType,ViolationType,VehicleType,TimeRequestedHour,Amount,geometry)
+
+utilization$OMFCurbZoneID <- substr(utilization$OMFCurbZoneID, nchar(utilization$OMFCurbZoneID)-2, nchar(utilization$OMFCurbZoneID))
+
 ```
 
 ```{r timesegment}
@@ -155,25 +158,29 @@ utilization <- utilization %>%
 
 ```
 
-## Exploratory Analysis
 ```{r}
 # dwell time - min
-ggplot(utilization, aes(x = DwellTimeMinutes)) + geom_histogram(bins = 50, fill = "blue", color = "black") +
-  labs(title = "Dwell Time Distribution", x = "Dwell Time (minutes)", y = "Frequency")
+grid.arrange(
+ggplot(utilization, aes(x = DwellTimeMinutes)) + geom_histogram(bins = 20, fill = "#440154", color = "white") +
+  labs(title = "Dwell Time Distribution", x = "Dwell Time (minutes)", y = "Frequency")+
+  theme_minimal(),
 
 ggplot(utilization, aes(x = TimeSegment)) +
-  geom_bar(fill = "steelblue", color = "black") + 
+  geom_bar(fill = "#440154", color = "white") + 
   theme_minimal() + 
   labs(title = "Counts by Time Segment", x = "Time Segment", y = "Count") + 
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  theme_minimal(),
 
 # vehicle type:commercial/medium commercial/other/truck
-ggplot(utilization, aes(x = VehicleType)) + geom_bar(fill = "green") +
-  labs(title = "Vehicle Type Distribution", x = "Vehicle Type", y = "Count")
+ggplot(utilization, aes(x = VehicleType)) + geom_bar(fill = "#440154") +
+  labs(title = "Vehicle Type Distribution", x = "Vehicle Type", y = "Count")+
+  theme_minimal(),
 
 # vehicle type: car/freight/truck/van
-ggplot(utilization, aes(x = EventType)) + geom_bar(fill = "orange") +
-  labs(title = "Event Type Distribution", x = "Event Type", y = "Count")
+ggplot(utilization, aes(x = EventType)) + geom_bar(fill = "#440154") +
+  labs(title = "Event Type Distribution", x = "Event Type", y = "Count")+
+  theme_minimal(),
+nrow=2)
 
 ```
 
@@ -187,6 +194,7 @@ availability_analysis <- utilization %>%
 ggplot(availability_analysis, aes(x = OMFCurbZoneID, y = VehicleCount, fill = TimeSegment)) +
   geom_bar(stat = "identity", position = "dodge") +
   theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_fill_manual(values = palette6)+
   labs(title = "Vehicle Count by Curb Zone and Time Segment", x = "Curb Zone ID", y = "Vehicle Count")
 
 # violation type distribution by curb zone
@@ -197,6 +205,7 @@ violation_analysis <- utilization %>%
 ggplot(violation_analysis, aes(x = OMFCurbZoneID, y = Count, fill = ViolationType)) +
   geom_bar(stat = "identity", position = "dodge") +
   theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_fill_manual(values = palette6)+
   labs(title = "Violation Type Distribution by Curb Zone", x = "Curb Zone ID", y = "Count")
 
 ```
@@ -208,24 +217,143 @@ utilization_sf <- st_as_sf(utilization, wkt = "geometry", crs = 4326)
 ggplot() +
   annotation_map_tile(zoom = 12) +  # Adjust the zoom level as needed
   geom_sf(data = utilization_sf, aes(color = TimeSegment), size = 0.7) +
+  scale_fill_manual(values = palette6)+
   labs(title = "Spatial Distribution of Curb Zones in Philadelphia", x = "Longitude", y = "Latitude") +
   theme_minimal()
 
 ```
 
-```{r}
-leaflet(utilization_sf) %>%
-  addTiles() %>%  # Add default OpenStreetMap tiles
-  addProviderTiles(providers$Stamen.TonerLite, options = providerTileOptions(noWrap = TRUE)) %>% # Add a base map layer
-  addCircles(lng = ~st_coordinates(geometry)[, 1], lat = ~st_coordinates(geometry)[, 2], 
-             color = ~colorFactor(palette = "Dark2", domain = utilization_sf$DwellTimeMinutes)(DwellTimeMinutes), 
-             popup = ~paste("Dwell Time Minutes:", DwellTimeMinutes),
-             radius = 20) %>% # Add circles for each point
-  addLegend("bottomright", pal = colorFactor(palette = "Dark2", domain = utilization_sf$DwellTimeMinutes), 
-            values = ~DwellTimeMinutes, title = "Dwell Time Minutes", opacity = 1) %>% # Add a legend
-  setView(lng = -75.16407, lat = 39.94951, zoom = 13) # Center the map around Philadelphia
+### event data exploratory analysis
+```{r id_clean, include=FALSE}
+event_export$curb_zone_id <- substr(event_export$curb_zone_id, nchar(event_export$curb_zone_id)-2, nchar(event_export$curb_zone_id))
 
-
+event_export$event_session_id <- substr(event_export$event_session_id, nchar(event_export$event_session_id)-3, nchar(event_export$event_session_id))
 ```
 
+```{r time_clean, echo=TRUE}
+# Correctly convert the timestamps from milliseconds to POSIXct
+event_export$event_time_start = as.POSIXct(event_export$event_time_start / 1000, origin="1970-01-01", tz="UTC")
+event_export$event_time_end = as.POSIXct(event_export$event_time_end / 1000, origin="1970-01-01", tz="UTC")
 
+# Calculate dwell time in seconds
+event_export$dwell_time = difftime(event_export$event_time_end, event_export$event_time_start)
+
+# Convert the dwell time to minutes
+event_export$dwell_time_minutes = as.numeric(event_export$dwell_time, units = "mins")
+event_export$dwell_time_minutes <- round(event_export$dwell_time_minutes,2)
+
+# Add time series data
+event_export$event_time_start <- as.POSIXct(event_export$event_time_start, format = "%Y-%m-%d %H:%M:%S")
+event_export <- event_export%>%
+  mutate(Date=as.Date(event_time_start),
+         week=week(Date),
+         dotw=wday(Date,label=TRUE),
+         interval60=floor_date(event_time_start,unit ="hour"),
+         interval15=floor_date(event_time_start,unit="15 mins"),
+         time_of_day=case_when(hour(interval60)<7 | hour(interval60)>19 ~ "overnight",
+                               hour(interval60)>=7 & hour(interval60)<10 ~ "AM Rush",
+                               hour(interval60)>=10 & hour(interval60)<15 ~ "Mid Day",
+                               hour(interval60)>=15 & hour(interval60)<=19 ~ "PM Rush"),
+         weekend=ifelse(dotw %in% c('Sun','Sat'),'Weekend','Weekday'))
+
+head(event_export)
+```
+
+```{r exploratory_analysis_curb}
+#curb utilization rates
+utilization_rates <- event_export %>%
+  group_by(curb_zone_id) %>%
+  summarise(Total_Events = n(),
+            Total_Dwell_Time = sum(dwell_time_minutes),
+            Average_Dwell_Time = mean(dwell_time_minutes))
+
+plot1 <- ggplot(utilization_rates,aes(x=curb_zone_id,y=Total_Events))+
+  geom_bar(stat="identity",fill="#3E4A89")+
+  theme_minimal()+
+  labs(x="Curb Zone ID", y = "Total Events", title="Total Events by Curb Zone")
+plot2 <- ggplot(utilization_rates,aes(x=curb_zone_id,y=Total_Dwell_Time))+
+  geom_bar(stat="identity",fill="#1F9E89")+
+  theme_minimal()+
+  labs(x="Curb Zone ID", y = "Total Events", title="Total Dwell Time by Curb Zone")
+plot3 <- ggplot(utilization_rates,aes(x=curb_zone_id,y=Average_Dwell_Time))+
+  geom_bar(stat="identity",fill="#35B779")+
+  theme_minimal()+
+  labs(x="Curb Zone ID", y = "Average Dwell Time", title="Average Dwell Time by Curb Zone")
+
+grid.arrange(plot1,plot2,plot3,nrow=3)
+```
+
+```{r exploratory_serial}
+#peak parking times
+event_export$event_time_start <- as.POSIXct(event_export$event_time_start, format = "%Y-%m-%d %H:%M:%S")
+peak_times <- event_export%>%
+  mutate(Hour = format(event_time_start, "%H")) %>%
+  group_by(Hour) %>%
+  summarise(Events = n())
+
+#event patterns over time
+patterns <- event_export %>%
+  group_by(Date=as.Date(event_time_start)) %>%
+  summarise(Events=n()) %>%
+  mutate(week=week(Date),
+         dotw=wday(Date,label=TRUE))
+
+byhour <- event_export %>%
+  group_by(time_of_day) %>%
+  summarise(Events=n())
+
+byweekend<- event_export %>%
+  group_by(weekend) %>%
+  summarise(Events=n())
+
+weekend_hour <- event_export %>%
+  group_by(weekend, hour(interval60)) %>%
+  summarize(Events=n()) %>%
+  rename(hour='hour(interval60)')
+
+  grid.arrange(
+  ggplot(patterns, aes(Date,Events)) + geom_line(color="#1F9E89") + 
+    labs(title="Event Patterns by Time, from Oct 2022 to Apr 2023", x="Date", y="Event Counts") + theme_minimal(),
+   ggplot(patterns, aes(dotw,Events)) + geom_bar(stat="identity",fill="#1F9E89") + 
+    labs(title="Event Patterns by Day of the Week, from Oct 2022 to Apr 2023", x="Date", y="Event Counts") + theme_minimal(),
+  ggplot(peak_times,aes(x=Hour,y=Events))+
+  geom_bar(stat="identity",fill="#1F9E89")+
+  theme_minimal()+
+  labs(x="Hour", y = "Events", title="Events by Hour of the Day"),
+  ggplot(byhour, aes(time_of_day,Events)) + geom_bar(stat="identity",fill="#1F9E89") + 
+    labs(title="Event Patterns by Hour of the Day", x="Hour", y="Event Counts") + theme_minimal(),
+  ggplot(byweekend, aes(weekend,Events)) + geom_bar(stat="identity",fill="#1F9E89") + 
+    labs(title="Event Patterns by Weekend vs Weekday", x="Weekend or Weekday", y="Event Counts") + theme_minimal(),
+  ggplot(weekend_hour, aes(x=hour, y=Events, color=weekend)) + geom_line() + 
+    scale_color_manual(values=palette2)+
+    labs(title="Event Patterns under Week and Time", x="Hour", y="Event Counts") + theme_minimal(),
+  nrow=3)
+   
+  #Correlation
+  correlation <- cor(event_export$dwell_time_minutes,event_export$vehicle_length)
+```
+
+```{r exploratory_operation}
+#parking duration distribution
+
+#vehicle type analysis
+vehicle_type <- event_export %>%
+  group_by(vehicle_type) %>%
+  summarise(Total_Events=n())
+
+grid.arrange(
+ggplot(event_export, aes(x=dwell_time_minutes)) +
+  geom_histogram(binwidth = 5,fill="#FDE725",color="white") +
+  theme_minimal()+
+  labs(x="Dwell Time (minutes)", y="Count", title="Parking Duration Distribution"),
+ggplot(vehicle_type,aes(x=vehicle_type,y=Total_Events))+
+  geom_bar(stat="identity",fill="#FDE725")+
+  theme_minimal()+
+  labs(x="Vehicle Type", y = "Events", title="Events by Vehicle Type")+
+  theme_minimal(),
+nrow=2)
+```
+
+```{r}
+
+```
