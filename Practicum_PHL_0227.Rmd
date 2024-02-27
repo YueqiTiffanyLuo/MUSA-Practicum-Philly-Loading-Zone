@@ -230,6 +230,8 @@ ggplot() +
 
 ```
 
+
+
 ### Event Data Exploratory Analysis
 ```{r id_clean, include=FALSE}
 event_export$curb_zone_id <- substr(event_export$curb_zone_id, nchar(event_export$curb_zone_id)-2, nchar(event_export$curb_zone_id))
@@ -367,7 +369,17 @@ nrow=2)
 ```
 
 ```{r}
+# Histogram of parking counts & vehicle type for each curb zone
+event <- event_CDS%>%select(-event_time_start,-event_time_end,-event_session_id)
+event$curb_zone_id <- str_sub(event$curb_zone_id , start= -3)
 
+event$vehicle_length <- as.character(event$vehicle_length)
+
+ggplot(event_export, aes(x = vehicle_type)) + 
+  geom_histogram(stat="count", fill = "#1F9E89") + 
+  facet_wrap(~ curb_zone_id) + 
+  theme_minimal() + 
+  labs(title = "Histogram of parking counts for each curb zone", x = "curb zone id", y = "Frequency")
 ```
 
 
