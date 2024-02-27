@@ -129,13 +129,19 @@ coords_split <- strsplit(coords_raw$coords, ",")
 coords_raw$latitude <- as.numeric(sapply(coords_split, `[`, 1))
 coords_raw$longitude <- as.numeric(sapply(coords_split, `[`, 2))
 # create coords shapefile
-coords <- st_as_sf(coords_raw, coords = c("longitude", "latitude"), crs = 'ESRI:102729')
-
+coords <- st_as_sf(coords_raw, coords = c("longitude", "latitude"), crs = 'EPSG:4326')%>%st_transform('ESRI:102729') %>% select(-coords)
+bld <- st_read('./LI_BUILDING_FOOTPRINTS.geojson')%>% filter(Shape__Area > 2000)
+bldf <- bld%>% 
+  st_transform('ESRI:102729')%>% 
+  filter(Shape__Area > 4000)%>%
+  dplyr::select(geometry)
 
 linAssets <- read_sf('./resmartloadingzones/Curb_and_Asset_Shapefiles/linear_assets.shp')%>% st_transform('ESRI:102729')
 # load booking data
 booking_data <-st_read("./Old_Data_for_Testing/Booking Data_cleaned.geojson")
-
+bookings <-read.csv("./Old_Data_for_Testing/Booking Data(1).csv")
+booking_only <- bookings %>% filter(EventType == 'booking')
+booking_only$curb_zone_id <- str_sub(booking_only$OMFCurbZoneID , start= -3)
 # load curb zone data
 curb_zone <-  read_json("./resmartloadingzones/curb_zones.json")
 
@@ -390,7 +396,7 @@ nrow=2)
 
 ```{r}
 # Histogram of parking counts & vehicle type for each curb zone
-event <- event_CDS%>%select(-event_time_start,-event_time_end,-event_session_id)
+event <- event_export%>%select(-event_time_start,-event_time_end,-event_session_id)
 event$curb_zone_id <- str_sub(event$curb_zone_id , start= -3)
 
 event$vehicle_length <- as.character(event$vehicle_length)
@@ -402,6 +408,38 @@ ggplot(event_export, aes(x = vehicle_type)) +
   labs(title = "Histogram of parking counts for each curb zone", x = "curb zone id", y = "Frequency")
 ```
 
+
+### Building footprint exploration
+
+```{r}
+# calculate the number of large building (size > 2000 sqft) in the 660 ft buffer of each loading zone 
+coords$bld.Buffer <- coords %>% 
+    st_buffer(660) %>% 
+    aggregate(mutate(bldf, counter = 1),., sum) %>%
+    pull(counter)
+
+# calculate the number of distance to 5 nearest large building
+coords <- coords %>% 
+  mutate(bld_nn5 = nn_function(st_coordinates(st_centroid(coords)), st_coordinates(st_centroid(bldf)), 3))
+```
+
+```{r}
+# join the curb zone id to coords dataset
+zone_id <- booking_only %>% dplyr::select(geometry,curb_zone_id, SmartZoneName, SmartZoneNumber)%>%drop_na()%>%unique()
+zone_id <- zone_id %>% st_drop_geometry() %>% select(-geometry)
+coords <- left_join(coords,zone_id, by = 'SmartZoneName')
+```
+
+
+```{r}
+# plot Distance to Large Building VS Parking Counts
+df_long <- pivot_longer(coords, cols = c(bld.Buffer,bld_nn5,parking_count), names_to = "Group", values_to = "Value")
+ggplot(df_long, aes(x = curb_zone_id, y = Value, fill = Group)) + 
+  geom_bar(stat = "identity", position = "dodge") +  
+  theme_minimal() + 
+  scale_fill_viridis(discrete = TRUE, option = "D") +
+  labs(x = "Category", y = "Value", title = "Distance to Large Building VS Parking Counts") 
+```
 
 ### OpenStreetMap exploration
 
