@@ -16,7 +16,27 @@ knitr::opts_chunk$set(echo = TRUE,warning = FALSE, message = FALSE)
 
 ## 1 Introduction
 
-Sam
+
+In certain locations during 2022-23, Philadelphia launched a trial run of the "Smart Loading Zone" initiative. This program, facilitated by a mobile app and sensors, allowed for reservations in specified zones where individual vehicle parking data was collected. The need for innovative solutions arose due to the increasing demand for home delivery and on-demand logistics, aiming to alleviate right-of-way congestion.
+
+A Loading Zone, traditionally, provides dedicated street space for loading and unloading with a set time limit, and parking is not allowed. Usage rules are communicated through signages next to these zones. In contrast, a Smart Loading Zone serves the same purpose but stands out with its digitized regulations. These zones, bookable through the Pebble Driver app, offer a digitalized space, allowing delivery companies to reserve and pay for usage time under a pay-per-use fee structure.
+
+Unlike conventional loading zones, Smart Loading Zones streamline the process through digitalized availability and regulations, with collaboration from Pebble by Sidewalk Labs. The City provides software applications for drivers, fleet managers, and parking enforcement.
+
+To reserve a Smart Loading Zone, drivers download the Pebble Driver App, create an account, and add payment details. Fleet managers can efficiently manage multiple vehicles through the Pebble Fleet Manager Portal. Parking Enforcement Officers enforce regulations via the Pebble Inspector App, and transportation officials monitor metrics through the Smart Loading Zone Dashboard. Low-cost vehicle detection technology is deployed to enhance data reliability.
+
+The Smart Loading Zone Pilot tested technologies related to loading activity in Philadelphia. The goals were to: 
+
+1. Provide a reliable, efficient way for delivery drivers to safely use curb spaces. 
+2. Manage increased loading activity. 
+3. Reduce unsafe and illegal parking. 
+
+
+The Smart Loading Zone Pilot addressed loading activity, aiming to provide reliable, efficient curb space for delivery, manage increased loading, and reduce illegal parking. Center City witnessed the introduction of 20 paid "smart loading zones." Companies reserved spaces through a smartphone app, and fleet managers registered on the Fleet Manager platform. Insights from the pilot inform potential program expansion and considerations for establishing new loading zones while justifying curb parking removal in other city areas.
+
+The data collected from this pilot program offers interesting insight into reservation patterns that can be used for potential expansion of the program, answering the questions: 
+
+What will happen if we want to site new loading zones elsewhere in the city? How can an official make an argument for taking away curb parking at a particular location? Where should new curbs go?
 
 
 ## 2 Data Manipulation and Visualization
