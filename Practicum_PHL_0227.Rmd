@@ -111,7 +111,7 @@ palette10 <- c('#440154','#482777','#3E4A89','#31688E','#26828E','#1F9E89','#35B
 #setwd("/Users/sqwang/Library/CloudStorage/OneDrive-PennO365/penn/6th/Practicum/Data")
 
 #Sam
-#setwd("")
+#setwd(D:/Spring_2024/Practicum/resmartloadingzones")
 
 #michael
 #setwd("")
