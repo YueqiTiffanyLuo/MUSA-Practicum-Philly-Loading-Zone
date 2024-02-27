@@ -1,0 +1,541 @@
+---
+title: "A data-driven planning framework for curbside loading zones - exploratory data analysis"
+author: " "
+date: 2024-01-30
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = FALSE, message = FALSE)
+```
+
+
+## 1 Introduction
+
+Sam
+
+
+## 2 Data Manipulation and Visualization
+
+
+
+
+
+```{r , include=FALSE}
+
+# You can set some global options for knitting chunks
+
+knitr::opts_chunk$set(echo = TRUE)
+
+# Load some libraries
+
+library(tidyverse)
+library(tidycensus)
+library(sf)
+library(spdep)
+library(caret)
+library(ckanr)
+library(FNN)
+library(grid)
+library(gridExtra)
+library(ggcorrplot) # plot correlation plot
+library(corrr)      # another way to plot correlation plot
+library(kableExtra)
+library(broom)
+library(tufte)
+library(rmarkdown)
+library(hexbin)
+library(viridis)
+library(cbsodataR)
+library(jtools)     # for regression model plots
+library(ggstance) # to support jtools plots
+library(ggpubr)    # plotting R^2 value on ggplot point scatter
+library(broom.mixed) # needed for effects plots
+library(stargazer)
+library(jsonlite)
+library(ggplot2)
+library(tmap)
+library(tmaptools)
+library(leaflet)
+library(raster)
+library(RColorBrewer)
+library(mapview)
+library(leaflet)
+library(plotly)
+library(ggspatial)
+library(openxlsx)
+library(lubridate)
+
+#library(rjson)
+
+# functions and data directory
+
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+
+palette2 <- c('#3E4A89','#1F9E89')
+palette4 <- c('#3E4A89','#1F9E89','#35B779','#B4DE2C')
+palette5 <- c('#440154','#3E4A89','#1F9E89','#35B779','#B4DE2C')
+palette6 <- c('#440154','#3E4A89','#1F9E89','#35B779','#B4DE2C','#FDE725')
+palette10 <- c('#440154','#482777','#3E4A89','#31688E','#26828E','#1F9E89','#35B779','#6DCD59','#B4DE2C','#FDE725')
+
+```
+
+```{r setting working directory}
+#Shengqian
+#setwd("/Users/sqwang/Library/CloudStorage/OneDrive-PennO365/penn/6th/Practicum/Data")
+
+#Sam
+#setwd("")
+
+#michael
+#setwd("")
+
+#tiffany
+#setwd("")
+
+#ling
+setwd("/Users/lingchen/Documents/Practicum/Practicum_Philly_2024/Data")
+
+
+coords_raw <- read.csv("./Old_Data_for_Testing/zoneCoords.csv")
+# split coords
+coords_split <- strsplit(coords_raw$coords, ",")
+coords_raw$latitude <- as.numeric(sapply(coords_split, `[`, 1))
+coords_raw$longitude <- as.numeric(sapply(coords_split, `[`, 2))
+# create coords shapefile
+coords <- st_as_sf(coords_raw, coords = c("longitude", "latitude"), crs = 'ESRI:102729')
+
+
+linAssets <- read_sf('./resmartloadingzones/Curb_and_Asset_Shapefiles/linear_assets.shp')%>% st_transform('ESRI:102729')
+# load booking data
+booking_data <-st_read("./Old_Data_for_Testing/Booking Data_cleaned.geojson")
+
+# load curb zone data
+curb_zone <-  read_json("./resmartloadingzones/curb_zones.json")
+
+# load CDS event data
+event_export <- read.csv("./events_export_CDS.csv")
+
+# load regulation geojson
+regulations <- st_read("./resmartloadingzones/regulations.geojson")
+
+# load pilot data
+#pre_pilot <- read.xlsx("./PHL_Pre-Pilot NN Collection Data_2022_12.xlsx")
+#mid_pilot <- read.xlsx("./PHL_Mid-Pilot NN Collection_2023_02.xlsx")
+
+```
+
+### Old Data for Testing - Booking Data Exploratory Analysis
+#### Utilization of curb zones
+```{r}
+utilization <- booking_data %>%
+  dplyr::select(SmartZoneName,OMFCurbZoneID,EventType,ViolationType,VehicleType,TimeRequestedHour,Amount,geometry)
+
+utilization$OMFCurbZoneID <- substr(utilization$OMFCurbZoneID, nchar(utilization$OMFCurbZoneID)-2, nchar(utilization$OMFCurbZoneID))
+
+curb_geom<- utilization %>%
+  select(SmartZoneName,OMFCurbZoneID,geometry) %>%
+  group_by(SmartZoneName,OMFCurbZoneID) %>%
+  summarise(Events=n()) 
+
+```
+
+```{r timesegment}
+utilization$DwellTimeMinutes <- utilization$TimeRequestedHour * 60
+
+utilization$TimeSegment <- cut(utilization$DwellTimeMinutes,
+                        breaks = c(0, 5, 15, 30, 45, 61),
+                        labels = c("0-5", "6-15", "16-30", "31-45","46-60"),
+                        right = FALSE)
+
+utilization <- utilization %>%
+  mutate(TimeSegment = as.character(TimeSegment), # Convert factor to character
+         TimeSegment = replace_na(TimeSegment, "violation")) # Replace NA with "violation"
+
+utilization$TimeSegment <- factor(utilization$TimeSegment)
+
+utilization <- utilization %>%
+  mutate(ViolationType = ifelse(ViolationType == "", "booking", ViolationType)) 
+
+```
+
+```{r}
+# dwell time - min
+grid.arrange(
+ggplot(utilization, aes(x = DwellTimeMinutes)) + geom_histogram(bins = 20, fill = "#440154", color = "white") +
+  labs(title = "Dwell Time Distribution", x = "Dwell Time (minutes)", y = "Frequency")+
+  theme_minimal(),
+
+ggplot(utilization, aes(x = TimeSegment)) +
+  geom_bar(fill = "#440154", color = "white") + 
+  theme_minimal() + 
+  labs(title = "Counts by Time Segment", x = "Time Segment", y = "Count") + 
+  theme_minimal(),
+
+# vehicle type:commercial/medium commercial/other/truck
+ggplot(utilization, aes(x = VehicleType)) + geom_bar(fill = "#440154") +
+  labs(title = "Vehicle Type Distribution", x = "Vehicle Type", y = "Count")+
+  theme_minimal(),
+
+# vehicle type: car/freight/truck/van
+ggplot(utilization, aes(x = EventType)) + geom_bar(fill = "#440154") +
+  labs(title = "Event Type Distribution", x = "Event Type", y = "Count")+
+  theme_minimal(),
+nrow=2)
+
+```
+
+```{r}
+# Availability of curb zones
+# vehicle count by curb zone and tiem segment
+availability_analysis <- utilization %>%
+  group_by(OMFCurbZoneID, TimeSegment) %>%
+  summarise(VehicleCount = n())
+
+ggplot(availability_analysis, aes(x = OMFCurbZoneID, y = VehicleCount, fill = TimeSegment)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_fill_manual(values = palette6)+
+  labs(title = "Vehicle Count by Curb Zone and Time Segment", x = "Curb Zone ID", y = "Vehicle Count")
+
+# violation type distribution by curb zone
+violation_analysis <- utilization %>%
+  group_by(OMFCurbZoneID, ViolationType) %>%
+  summarise(Count = n())
+
+ggplot(violation_analysis, aes(x = OMFCurbZoneID, y = Count, fill = ViolationType)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_fill_manual(values = palette6)+
+  labs(title = "Violation Type Distribution by Curb Zone", x = "Curb Zone ID", y = "Count")
+
+```
+
+```{r eval=FALSE, include=FALSE}
+utilization_sf <- st_as_sf(utilization, wkt = "geometry", crs = 4326)
+
+# distribution of Curb Zones
+ggplot() +
+  annotation_map_tile(zoom = 12) +  # Adjust the zoom level as needed
+  geom_sf(data = utilization_sf, aes(color = TimeSegment), size = 0.7) +
+  scale_fill_manual(values = palette6)+
+  labs(title = "Spatial Distribution of Curb Zones in Philadelphia", x = "Longitude", y = "Latitude") +
+  theme_minimal()
+
+```
+
+### Event Data Exploratory Analysis
+```{r id_clean, include=FALSE}
+event_export$curb_zone_id <- substr(event_export$curb_zone_id, nchar(event_export$curb_zone_id)-2, nchar(event_export$curb_zone_id))
+
+event_export$event_session_id <- substr(event_export$event_session_id, nchar(event_export$event_session_id)-3, nchar(event_export$event_session_id))
+```
+
+```{r time_clean, echo=TRUE}
+# Correctly convert the timestamps from milliseconds to POSIXct
+event_export$event_time_start = as.POSIXct(event_export$event_time_start / 1000, origin="1970-01-01", tz="UTC")
+event_export$event_time_end = as.POSIXct(event_export$event_time_end / 1000, origin="1970-01-01", tz="UTC")
+
+# Calculate dwell time in seconds
+event_export$dwell_time = difftime(event_export$event_time_end, event_export$event_time_start)
+
+# Convert the dwell time to minutes
+event_export$dwell_time_minutes = as.numeric(event_export$dwell_time, units = "mins")
+event_export$dwell_time_minutes <- round(event_export$dwell_time_minutes,2)
+
+# Add time series data
+event_export$event_time_start <- as.POSIXct(event_export$event_time_start, format = "%Y-%m-%d %H:%M:%S")
+event_export <- event_export%>%
+  mutate(Date=as.Date(event_time_start),
+         week=week(Date),
+         dotw=wday(Date,label=TRUE),
+         interval60=floor_date(event_time_start,unit ="hour"),
+         interval15=floor_date(event_time_start,unit="15 mins"),
+         time_of_day=case_when(hour(interval60)<7 | hour(interval60)>19 ~ "overnight",
+                               hour(interval60)>=7 & hour(interval60)<10 ~ "AM Rush",
+                               hour(interval60)>=10 & hour(interval60)<15 ~ "Mid Day",
+                               hour(interval60)>=15 & hour(interval60)<=19 ~ "PM Rush"),
+         weekend=ifelse(dotw %in% c('Sun','Sat'),'Weekend','Weekday'))
+
+head(event_export)
+```
+
+```{r exploratory_analysis_curb}
+#curb utilization rates
+utilization_rates <- event_export %>%
+  group_by(curb_zone_id) %>%
+  summarise(Total_Events = n(),
+            Total_Dwell_Time = sum(dwell_time_minutes),
+            Average_Dwell_Time = mean(dwell_time_minutes))
+
+plot1 <- ggplot(utilization_rates,aes(x=curb_zone_id,y=Total_Events))+
+  geom_bar(stat="identity",fill="#3E4A89")+
+  theme_minimal()+
+  labs(x="Curb Zone ID", y = "Total Events", title="Total Events by Curb Zone")
+plot2 <- ggplot(utilization_rates,aes(x=curb_zone_id,y=Total_Dwell_Time))+
+  geom_bar(stat="identity",fill="#1F9E89")+
+  theme_minimal()+
+  labs(x="Curb Zone ID", y = "Total Events", title="Total Dwell Time by Curb Zone")
+plot3 <- ggplot(utilization_rates,aes(x=curb_zone_id,y=Average_Dwell_Time))+
+  geom_bar(stat="identity",fill="#35B779")+
+  theme_minimal()+
+  labs(x="Curb Zone ID", y = "Average Dwell Time", title="Average Dwell Time by Curb Zone")
+
+grid.arrange(plot1,plot2,plot3,nrow=3)
+```
+
+```{r exploratory_serial}
+#peak parking times
+event_export$event_time_start <- as.POSIXct(event_export$event_time_start, format = "%Y-%m-%d %H:%M:%S")
+peak_times <- event_export%>%
+  mutate(Hour = format(event_time_start, "%H")) %>%
+  group_by(Hour) %>%
+  summarise(Events = n())
+
+#event patterns over time
+patterns <- event_export %>%
+  group_by(Date=as.Date(event_time_start)) %>%
+  summarise(Events=n()) %>%
+  mutate(week=week(Date),
+         dotw=wday(Date,label=TRUE))
+
+byhour <- event_export %>%
+  group_by(time_of_day) %>%
+  summarise(Events=n())
+
+byweekend<- event_export %>%
+  group_by(weekend) %>%
+  summarise(Events=n())
+
+weekend_hour <- event_export %>%
+  group_by(weekend, hour(interval60)) %>%
+  summarize(Events=n()) %>%
+  rename(hour='hour(interval60)')
+
+ggplot(peak_times,aes(x=Hour,y=Events))+
+  geom_bar(stat="identity",fill="#1F9E89")+
+  theme_minimal()+
+  labs(x="Hour", y = "Events", title="Events by Hour of the Day")
+
+  ggplot(byweekend, aes(weekend,Events)) + geom_bar(stat="identity",fill="#1F9E89") + 
+    labs(title="Event Patterns by Weekend vs Weekday", x="Weekend or Weekday", y="Event Counts") + theme_minimal(),
+  
+
+  grid.arrange(
+  ggplot(patterns, aes(Date,Events)) + geom_line(color="#1F9E89") + 
+    labs(title="Event Patterns by Time, from Oct 2022 to Apr 2023", x="Date", y="Event Counts") + theme_minimal(),
+   ggplot(patterns, aes(dotw,Events)) + geom_bar(stat="identity",fill="#1F9E89") + 
+    labs(title="Event Patterns by Day of the Week, from Oct 2022 to Apr 2023", x="Date", y="Event Counts") + theme_minimal(),
+  
+  ggplot(byhour, aes(time_of_day,Events)) + geom_bar(stat="identity",fill="#1F9E89") + 
+    labs(title="Event Patterns by Hour of the Day", x="Hour", y="Event Counts") + theme_minimal(),
+
+  ggplot(weekend_hour, aes(x=hour, y=Events, color=weekend)) + geom_line() + 
+    scale_color_manual(values=palette2)+
+    labs(title="Event Patterns under Week and Time", x="Hour", y="Event Counts") + theme_minimal(),
+  nrow=2)
+   
+  #Correlation
+  correlation <- cor(event_export$dwell_time_minutes,event_export$vehicle_length)
+```
+
+```{r exploratory_operation}
+#parking duration distribution
+
+#vehicle type analysis
+vehicle_type <- event_export %>%
+  group_by(vehicle_type) %>%
+  summarise(Total_Events=n())
+
+grid.arrange(
+ggplot(event_export, aes(x=dwell_time_minutes)) +
+  geom_histogram(binwidth = 5,fill="#FDE725",color="white") +
+  theme_minimal()+
+  labs(x="Dwell Time (minutes)", y="Count", title="Parking Duration Distribution"),
+ggplot(vehicle_type,aes(x=vehicle_type,y=Total_Events))+
+  geom_bar(stat="identity",fill="#FDE725")+
+  theme_minimal()+
+  labs(x="Vehicle Type", y = "Events", title="Events by Vehicle Type")+
+  theme_minimal(),
+nrow=2)
+```
+
+```{r}
+
+```
+
+
+### OpenStreetMap exploration
+
+The "**amenity**" types we collected were: "bar", "cafe", "fast_food", "pub", "restaurant", "college", "school", "university", "parking_space", "bank", "atm", "clinic", "hospital", "pharmacy", "community_centre", "conference_centre", "nightclub", "theatre", "police", "post_box", "post_office", "place_of_worship"
+
+The "**building**" types we collected were: "apartments", "dormitory", "hotel", "commercial", "office", "retail", "supermarket", "warehouse", "church", "college", "government", "hospital", "public", "school", "university"
+
+The "**shop**" types we collected were: "alcohol", "bakery", "beverages", "coffee", "convenience", "deli", "department_store", "general", "supermarket", "clothes", "gift"
+
+We also collected **office** building types and **land uses** but these data were not a large enough sample.
+
+```{r openstreemap location collection, message=FALSE}
+# amenities <- c("bar", "cafe", "fast_food", "pub", "restaurant", "college", "school", "university", 
+#                    "parking_space", "bank", "atm", "clinic", "hospital", "pharmacy", "community_centre", 
+#                    "conference_centre", "nightclub", "theatre", "police", "post_box", "post_office", 
+#                    "place_of_worship")
+# 
+# # Format the list: remove underscores, capitalize first letter, and put in quotes
+# formatted_list <- gsub("_", " ", amenities)
+# formatted_list <- gsub("^([a-z])", "\\U\\1", formatted_list, perl = TRUE)
+# formatted_list_1 <- paste0('"', formatted_list, '"')
+# 
+# buildings <- c("apartments", "dormitory", "hotel", "commercial", "office", 
+#                    "retail", "supermarket", "warehouse", "church", "college", 
+#                    "government", "hospital", "public", "school", "university")
+# 
+# formatted_list <- gsub("_", " ", buildings)
+# formatted_list <- gsub("^([a-z])", "\\U\\1", formatted_list, perl = TRUE)
+# formatted_list_2 <- paste0('"', formatted_list, '"')
+# 
+# shops <- c("alcohol", "bakery", "beverages", "coffee", "convenience", "deli",
+#                    "department_store", "general", "supermarket", "clothes", "gift")
+# 
+# formatted_list <- gsub("_", " ", shops)
+# formatted_list <- gsub("^([a-z])", "\\U\\1", formatted_list, perl = TRUE)
+# formatted_list_3 <- paste0('"', formatted_list, '"')
+# 
+# # Create a dataframe
+# poi_types <- data.frame(Amenities = formatted_list_1, Buildings = formatted_list_2, Shops = formatted_list_3)
+```
+
+Assuming that distance to some certain types of buildings relates to how much cars and trucks need to use loading zones there, we calculated the distance from each pilot loading zone to the three nearest of each of these types.
+
+```{r nearest neighbors, message=FALSE}
+test <- st_read("C:/Users/14145/Box/Practicum_Philly_2024/Michael/zones_nn_3.geojson")
+
+numeric <- test %>%
+  dplyr::select(-c("SmartZoneName")) %>%
+  st_drop_geometry(.) %>%
+  mutate(log10events = log10(events))
+
+#Correlation plot
+corplot <- cor(numeric)
+
+cor_df <- as.data.frame(corplot)
+
+# Extract the column values and row names
+column_name <- "log10events"  # Replace "mpg" with the column name you want to plot
+column_values <- cor_df[[column_name]]
+cor_df <- data.frame(variable = rownames(cor_df), correlation = column_values)
+
+cor_df <- filter(cor_df, variable != "events" & variable != "log10events")
+
+# Create a bar plot using ggplot2
+ggplot(cor_df, aes(x = reorder(variable, -correlation), y = correlation, fill=correlation)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Relationships with Log10 Events",
+       x = "Nearest Neighbor Variables",
+       y = "Correlation") +
+  ylim(-1,1)+
+  scale_fill_viridis_c()+
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1))
+ggplotly(p=ggplot2::last_plot())
+```
+
+```{r clear NN table}
+filter(cor_df, abs(correlation) > 0.5) %>%
+  ggplot(., aes(x = reorder(variable, -correlation), y = correlation, fill=correlation)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Strongest Relationships (>0.5) with Log10 Events",
+       x = "Nearest Neighbor Variables",
+       y = "Correlation") +
+  ylim(-1,1)+
+  scale_fill_viridis_c()+
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1))
+```
+
+Many of the strongest relationships are negative ones. In particular, decreasing correlation with the number of parking events at a loading zone come with distance from a place of worship.
+
+The positive relationships are associated with clinics and community centers.
+
+
+### Open Mobility Foundation Data Exploration
+
+
+```{r omf}
+library(httr)
+library(ggplot2)
+
+# Define the URL and headers for retrieving curb zones data
+url <- "https://creativecommons.org/licenses/by/4.0/"
+headers <- c(Accept = "application/json")
+
+# Define query parameters to filter for loading zones within the center city area
+query_params <- list(
+  include_geometry = "true",
+  city = "Philadelphia",
+  zone_type = "loading",
+  area_of_interest = "center city"
+)
+
+# Make the GET request with query parameters
+response <- GET(url, query = query_params, add_headers(.headers = headers))
+
+# Check if the request was successful (status code 200)
+if (status_code(response) == 200) {
+  # Parse the JSON response
+  curb_zones <- content(response, "parsed")
+  
+  # Check if the curb_zones object is a list and not empty
+  if (is.list(curb_zones) && length(curb_zones$data) > 0) {
+    # Extract geometry coordinates for each zone
+    all_coords <- lapply(curb_zones$data[[1]]$zones, function(zone) {
+      if ("geometry" %in% names(zone) && "coordinates" %in% names(zone$geometry)) {
+        return(zone$geometry$coordinates)
+      } else {
+        return(NULL)
+      }
+    })
+    
+    # Combine all valid coordinates into a single data frame
+    curb_zones_df <- data.frame(
+      longitude = unlist(lapply(all_coords, function(coords) coords[[1]])),
+      latitude = unlist(lapply(all_coords, function(coords) coords[[2]]))
+    )
+    
+    # Create visualizations using ggplot2
+    ggplot(curb_zones_df, aes(x = longitude, y = latitude)) +
+      geom_polygon(fill = "blue") +
+      labs(title = "Philadelphia Loading Zones in Center City Area") +
+      theme_minimal()
+  } else {
+    print("No curb zones data found.")
+  }
+} else {
+  print(paste("Error:", status_code(response)))
+}
+
+
+
+```
+
+
+
+### Next Steps
+
+1. Make a predictive model for new zone expansion:
+Predict segments of streets for the new loading zone.
+Define the dependent variable as Booking by time by length of curb.
+
+2. Articulate the rationale for putting different zones:
+Analyze factors such as traffic flow, existing loading zones, parking demand, and pedestrian activity.
+Consider input from stakeholders, including businesses, residents, and transportation authorities.
+
+3. Use scenario planning:
+Develop scenarios for placing loading zones in different locations within the project area.
+Test each scenario to evaluate its impact on traffic flow, parking availability, and pedestrian safety.
+
+
