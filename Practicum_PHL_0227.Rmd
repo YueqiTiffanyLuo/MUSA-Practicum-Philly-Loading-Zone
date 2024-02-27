@@ -133,9 +133,14 @@ regulations <- st_read("./resmartloadingzones/regulations.geojson")
 #### Utilization of curb zones
 ```{r}
 utilization <- booking_data %>%
-  dplyr::select(OMFCurbZoneID,EventType,ViolationType,VehicleType,TimeRequestedHour,Amount,geometry)
+  dplyr::select(SmartZoneName,OMFCurbZoneID,EventType,ViolationType,VehicleType,TimeRequestedHour,Amount,geometry)
 
 utilization$OMFCurbZoneID <- substr(utilization$OMFCurbZoneID, nchar(utilization$OMFCurbZoneID)-2, nchar(utilization$OMFCurbZoneID))
+
+curb_geom<- utilization %>%
+  select(SmartZoneName,OMFCurbZoneID,geometry) %>%
+  group_by(SmartZoneName,OMFCurbZoneID) %>%
+  summarise(Events=n()) 
 
 ```
 
@@ -210,7 +215,7 @@ ggplot(violation_analysis, aes(x = OMFCurbZoneID, y = Count, fill = ViolationTyp
 
 ```
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 utilization_sf <- st_as_sf(utilization, wkt = "geometry", crs = 4326)
 
 # distribution of Curb Zones
@@ -311,23 +316,28 @@ weekend_hour <- event_export %>%
   summarize(Events=n()) %>%
   rename(hour='hour(interval60)')
 
+ggplot(peak_times,aes(x=Hour,y=Events))+
+  geom_bar(stat="identity",fill="#1F9E89")+
+  theme_minimal()+
+  labs(x="Hour", y = "Events", title="Events by Hour of the Day")
+
+  ggplot(byweekend, aes(weekend,Events)) + geom_bar(stat="identity",fill="#1F9E89") + 
+    labs(title="Event Patterns by Weekend vs Weekday", x="Weekend or Weekday", y="Event Counts") + theme_minimal(),
+  
+
   grid.arrange(
   ggplot(patterns, aes(Date,Events)) + geom_line(color="#1F9E89") + 
     labs(title="Event Patterns by Time, from Oct 2022 to Apr 2023", x="Date", y="Event Counts") + theme_minimal(),
    ggplot(patterns, aes(dotw,Events)) + geom_bar(stat="identity",fill="#1F9E89") + 
     labs(title="Event Patterns by Day of the Week, from Oct 2022 to Apr 2023", x="Date", y="Event Counts") + theme_minimal(),
-  ggplot(peak_times,aes(x=Hour,y=Events))+
-  geom_bar(stat="identity",fill="#1F9E89")+
-  theme_minimal()+
-  labs(x="Hour", y = "Events", title="Events by Hour of the Day"),
+  
   ggplot(byhour, aes(time_of_day,Events)) + geom_bar(stat="identity",fill="#1F9E89") + 
     labs(title="Event Patterns by Hour of the Day", x="Hour", y="Event Counts") + theme_minimal(),
-  ggplot(byweekend, aes(weekend,Events)) + geom_bar(stat="identity",fill="#1F9E89") + 
-    labs(title="Event Patterns by Weekend vs Weekday", x="Weekend or Weekday", y="Event Counts") + theme_minimal(),
+
   ggplot(weekend_hour, aes(x=hour, y=Events, color=weekend)) + geom_line() + 
     scale_color_manual(values=palette2)+
     labs(title="Event Patterns under Week and Time", x="Hour", y="Event Counts") + theme_minimal(),
-  nrow=3)
+  nrow=2)
    
   #Correlation
   correlation <- cor(event_export$dwell_time_minutes,event_export$vehicle_length)
