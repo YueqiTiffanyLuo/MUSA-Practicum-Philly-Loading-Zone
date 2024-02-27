@@ -67,8 +67,10 @@ library(mapview)
 library(leaflet)
 library(plotly)
 library(ggspatial)
+library(jpeg)
 library(openxlsx)
 library(lubridate)
+library(httr)
 
 #library(rjson)
 
@@ -95,7 +97,7 @@ palette10 <- c('#440154','#482777','#3E4A89','#31688E','#26828E','#1F9E89','#35B
 #setwd("")
 
 #tiffany
-#setwd("")
+#setwd("/Users/yql/Library/CloudStorage/OneDrive-PennO365/penn/6th/Practicum/Data")
 
 #ling
 setwd("/Users/lingchen/Documents/Practicum/Practicum_Philly_2024/Data")
@@ -133,9 +135,14 @@ regulations <- st_read("./resmartloadingzones/regulations.geojson")
 #### Utilization of curb zones
 ```{r}
 utilization <- booking_data %>%
-  dplyr::select(OMFCurbZoneID,EventType,ViolationType,VehicleType,TimeRequestedHour,Amount,geometry)
+  dplyr::select(SmartZoneName,OMFCurbZoneID,EventType,ViolationType,VehicleType,TimeRequestedHour,Amount,geometry)
 
 utilization$OMFCurbZoneID <- substr(utilization$OMFCurbZoneID, nchar(utilization$OMFCurbZoneID)-2, nchar(utilization$OMFCurbZoneID))
+
+curb_geom<- utilization %>%
+  select(SmartZoneName,OMFCurbZoneID,geometry) %>%
+  group_by(SmartZoneName,OMFCurbZoneID) %>%
+  summarise(Events=n()) 
 
 ```
 
@@ -210,7 +217,7 @@ ggplot(violation_analysis, aes(x = OMFCurbZoneID, y = Count, fill = ViolationTyp
 
 ```
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 utilization_sf <- st_as_sf(utilization, wkt = "geometry", crs = 4326)
 
 # distribution of Curb Zones
@@ -311,23 +318,28 @@ weekend_hour <- event_export %>%
   summarize(Events=n()) %>%
   rename(hour='hour(interval60)')
 
+ggplot(peak_times,aes(x=Hour,y=Events))+
+  geom_bar(stat="identity",fill="#1F9E89")+
+  theme_minimal()+
+  labs(x="Hour", y = "Events", title="Events by Hour of the Day")
+
+  ggplot(byweekend, aes(weekend,Events)) + geom_bar(stat="identity",fill="#1F9E89") + 
+    labs(title="Event Patterns by Weekend vs Weekday", x="Weekend or Weekday", y="Event Counts") + theme_minimal(),
+  
+
   grid.arrange(
   ggplot(patterns, aes(Date,Events)) + geom_line(color="#1F9E89") + 
     labs(title="Event Patterns by Time, from Oct 2022 to Apr 2023", x="Date", y="Event Counts") + theme_minimal(),
    ggplot(patterns, aes(dotw,Events)) + geom_bar(stat="identity",fill="#1F9E89") + 
     labs(title="Event Patterns by Day of the Week, from Oct 2022 to Apr 2023", x="Date", y="Event Counts") + theme_minimal(),
-  ggplot(peak_times,aes(x=Hour,y=Events))+
-  geom_bar(stat="identity",fill="#1F9E89")+
-  theme_minimal()+
-  labs(x="Hour", y = "Events", title="Events by Hour of the Day"),
+  
   ggplot(byhour, aes(time_of_day,Events)) + geom_bar(stat="identity",fill="#1F9E89") + 
     labs(title="Event Patterns by Hour of the Day", x="Hour", y="Event Counts") + theme_minimal(),
-  ggplot(byweekend, aes(weekend,Events)) + geom_bar(stat="identity",fill="#1F9E89") + 
-    labs(title="Event Patterns by Weekend vs Weekday", x="Weekend or Weekday", y="Event Counts") + theme_minimal(),
+
   ggplot(weekend_hour, aes(x=hour, y=Events, color=weekend)) + geom_line() + 
     scale_color_manual(values=palette2)+
     labs(title="Event Patterns under Week and Time", x="Hour", y="Event Counts") + theme_minimal(),
-  nrow=3)
+  nrow=2)
    
   #Correlation
   correlation <- cor(event_export$dwell_time_minutes,event_export$vehicle_length)
@@ -454,10 +466,9 @@ The positive relationships are associated with clinics and community centers.
 
 ### Open Mobility Foundation Data Exploration
 
+We are interested in exploring more datasets, such as the OMF data for for infomation about the curb use in the pilot area.
 
 ```{r omf}
-library(httr)
-library(ggplot2)
 
 # Define the URL and headers for retrieving curb zones data
 url <- "https://creativecommons.org/licenses/by/4.0/"
@@ -499,20 +510,42 @@ if (status_code(response) == 200) {
     # Create visualizations using ggplot2
     ggplot(curb_zones_df, aes(x = longitude, y = latitude)) +
       geom_polygon(fill = "blue") +
-      labs(title = "Philadelphia Loading Zones in Center City Area") +
+      labs(title = "Philadelphia Loading Zones in Pilot Area") +
       theme_minimal()
-  } else {
-    print("No curb zones data found.")
-  }
+  } 
 } else {
   print(paste("Error:", status_code(response)))
 }
 
 
 
+# Set working directory to where the image is located
+setwd("Desktop/MUSA-Practicum-Philly-Loading-Zone-main/total use time OMF.jpg")
+
+# Read the image file
+img <- readJPEG("total use time OMF.jpg")
+
+# Display the image
+imshow(img, main = "Total Curb Space Use Time (in Minute)")
+
+
 ```
 
+Total Use Time Analysis
 
+```{r omf}
+
+# Set working directory to where the image is located
+setwd("Desktop/MUSA-Practicum-Philly-Loading-Zone-main/total use time OMF.jpg")
+
+# Read the image file
+img <- readJPEG("total use time OMF.jpg")
+
+# Display the image
+imshow(img, main = "Total Curb Space Use Time (in Minute)")
+
+
+```
 
 ### Next Steps
 
@@ -527,5 +560,3 @@ Consider input from stakeholders, including businesses, residents, and transport
 3. Use scenario planning:
 Develop scenarios for placing loading zones in different locations within the project area.
 Test each scenario to evaluate its impact on traffic flow, parking availability, and pedestrian safety.
-
-
