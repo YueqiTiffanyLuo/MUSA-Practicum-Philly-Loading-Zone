@@ -69,6 +69,9 @@ library(plotly)
 library(ggspatial)
 library(openxlsx)
 library(lubridate)
+library(dplyr)
+library(tidyr)
+library(reshape2)
 
 #library(rjson)
 
@@ -126,6 +129,9 @@ regulations <- st_read("./resmartloadingzones/regulations.geojson")
 # load pilot data
 #pre_pilot <- read.xlsx("./PHL_Pre-Pilot NN Collection Data_2022_12.xlsx")
 #mid_pilot <- read.xlsx("./PHL_Mid-Pilot NN Collection_2023_02.xlsx")
+
+# OMF Data
+OMF <- st_read("./zones_with_OMF_vars.geojson")
 
 ```
 
@@ -322,7 +328,7 @@ ggplot(peak_times,aes(x=Hour,y=Events))+
   labs(x="Hour", y = "Events", title="Events by Hour of the Day")
 
   ggplot(byweekend, aes(weekend,Events)) + geom_bar(stat="identity",fill="#1F9E89") + 
-    labs(title="Event Patterns by Weekend vs Weekday", x="Weekend or Weekday", y="Event Counts") + theme_minimal(),
+    labs(title="Event Patterns by Weekend vs Weekday", x="Weekend or Weekday", y="Event Counts") + theme_minimal()
   
 
   grid.arrange(
@@ -363,11 +369,6 @@ ggplot(vehicle_type,aes(x=vehicle_type,y=Total_Events))+
   theme_minimal(),
 nrow=2)
 ```
-
-```{r}
-
-```
-
 
 ### OpenStreetMap exploration
 
@@ -412,7 +413,7 @@ We also collected **office** building types and **land uses** but these data wer
 Assuming that distance to some certain types of buildings relates to how much cars and trucks need to use loading zones there, we calculated the distance from each pilot loading zone to the three nearest of each of these types.
 
 ```{r nearest neighbors, message=FALSE}
-test <- st_read("C:/Users/14145/Box/Practicum_Philly_2024/Michael/zones_nn_3.geojson")
+test <- st_read("./zones_nn_3.geojson")
 
 numeric <- test %>%
   dplyr::select(-c("SmartZoneName")) %>%
@@ -538,4 +539,39 @@ Consider input from stakeholders, including businesses, residents, and transport
 Develop scenarios for placing loading zones in different locations within the project area.
 Test each scenario to evaluate its impact on traffic flow, parking availability, and pedestrian safety.
 
+## 3 Predictive Model
+```{r final}
+final <- event_export %>%
+  group_by(curb_zone_id,week) %>%
+  summarise(Total_Events = n(),
+            Total_Dwell_Time = sum(dwell_time_minutes),
+            Average_Dwell_Time = mean(dwell_time_minutes))
+
+week_dummies <- event_export %>%
+  select(curb_zone_id, week, time_of_day) %>%
+  group_by(curb_zone_id, week, time_of_day) %>%
+  summarise(n = n(), .groups = 'drop') %>%
+  spread(time_of_day, n, fill = 0)  
+
+final <- week_dummies%>%
+  left_join(final, by = c("curb_zone_id", "week"))
+
+dotw_dummies <- event_export %>%
+  select(curb_zone_id, week, dotw) %>%
+  group_by(curb_zone_id, week, dotw) %>%
+  summarise(n = n(), .groups = 'drop') %>%
+  spread(dotw, n, fill = 0)  
+
+final <- dotw_dummies%>%
+  left_join(final, by = c("curb_zone_id", "week"))
+
+vehicle_dummies <- event_export %>%
+  select(curb_zone_id, week, vehicle_type) %>%
+  group_by(curb_zone_id, week, vehicle_type) %>%
+  summarise(n = n(), .groups = 'drop') %>%
+  spread(vehicle_type, n, fill = 0)  
+
+final <- vehicle_dummies%>%
+  left_join(final, by = c("curb_zone_id", "week"))
+```
 
