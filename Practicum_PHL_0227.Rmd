@@ -16,27 +16,7 @@ knitr::opts_chunk$set(echo = TRUE,warning = FALSE, message = FALSE)
 
 ## 1 Introduction
 
-
-In certain locations during 2022-23, Philadelphia launched a trial run of the "Smart Loading Zone" initiative. This program, facilitated by a mobile app and sensors, allowed for reservations in specified zones where individual vehicle parking data was collected. The need for innovative solutions arose due to the increasing demand for home delivery and on-demand logistics, aiming to alleviate right-of-way congestion.
-
-A Loading Zone, traditionally, provides dedicated street space for loading and unloading with a set time limit, and parking is not allowed. Usage rules are communicated through signages next to these zones. In contrast, a Smart Loading Zone serves the same purpose but stands out with its digitized regulations. These zones, bookable through the Pebble Driver app, offer a digitalized space, allowing delivery companies to reserve and pay for usage time under a pay-per-use fee structure.
-
-Unlike conventional loading zones, Smart Loading Zones streamline the process through digitalized availability and regulations, with collaboration from Pebble by Sidewalk Labs. The City provides software applications for drivers, fleet managers, and parking enforcement.
-
-To reserve a Smart Loading Zone, drivers download the Pebble Driver App, create an account, and add payment details. Fleet managers can efficiently manage multiple vehicles through the Pebble Fleet Manager Portal. Parking Enforcement Officers enforce regulations via the Pebble Inspector App, and transportation officials monitor metrics through the Smart Loading Zone Dashboard. Low-cost vehicle detection technology is deployed to enhance data reliability.
-
-The Smart Loading Zone Pilot tested technologies related to loading activity in Philadelphia. The goals were to: 
-
-1. Provide a reliable, efficient way for delivery drivers to safely use curb spaces. 
-2. Manage increased loading activity. 
-3. Reduce unsafe and illegal parking. 
-
-
-The Smart Loading Zone Pilot addressed loading activity, aiming to provide reliable, efficient curb space for delivery, manage increased loading, and reduce illegal parking. Center City witnessed the introduction of 20 paid "smart loading zones." Companies reserved spaces through a smartphone app, and fleet managers registered on the Fleet Manager platform. Insights from the pilot inform potential program expansion and considerations for establishing new loading zones while justifying curb parking removal in other city areas.
-
-The data collected from this pilot program offers interesting insight into reservation patterns that can be used for potential expansion of the program, answering the questions: 
-
-What will happen if we want to site new loading zones elsewhere in the city? How can an official make an argument for taking away curb parking at a particular location? Where should new curbs go?
+Sam
 
 
 ## 2 Data Manipulation and Visualization
@@ -87,10 +67,12 @@ library(mapview)
 library(leaflet)
 library(plotly)
 library(ggspatial)
-library(jpeg)
 library(openxlsx)
 library(lubridate)
-library(httr)
+library(dplyr)
+library(tidyr)
+library(reshape2)
+library(riem)
 
 #library(rjson)
 
@@ -111,13 +93,13 @@ palette10 <- c('#440154','#482777','#3E4A89','#31688E','#26828E','#1F9E89','#35B
 #setwd("/Users/sqwang/Library/CloudStorage/OneDrive-PennO365/penn/6th/Practicum/Data")
 
 #Sam
-#setwd(D:/Spring_2024/Practicum/resmartloadingzones")
+#setwd("")
 
 #michael
 #setwd("")
 
 #tiffany
-#setwd("/Users/yql/Library/CloudStorage/OneDrive-PennO365/penn/6th/Practicum/Data")
+#setwd("")
 
 #ling
 setwd("/Users/lingchen/Documents/Practicum/Practicum_Philly_2024/Data")
@@ -129,19 +111,13 @@ coords_split <- strsplit(coords_raw$coords, ",")
 coords_raw$latitude <- as.numeric(sapply(coords_split, `[`, 1))
 coords_raw$longitude <- as.numeric(sapply(coords_split, `[`, 2))
 # create coords shapefile
-coords <- st_as_sf(coords_raw, coords = c("longitude", "latitude"), crs = 'EPSG:4326')%>%st_transform('ESRI:102729') %>% select(-coords)
-bld <- st_read('./LI_BUILDING_FOOTPRINTS.geojson')%>% filter(Shape__Area > 2000)
-bldf <- bld%>% 
-  st_transform('ESRI:102729')%>% 
-  filter(Shape__Area > 4000)%>%
-  dplyr::select(geometry)
+coords <- st_as_sf(coords_raw, coords = c("longitude", "latitude"), crs = 'ESRI:102729')
+
 
 linAssets <- read_sf('./resmartloadingzones/Curb_and_Asset_Shapefiles/linear_assets.shp')%>% st_transform('ESRI:102729')
 # load booking data
 booking_data <-st_read("./Old_Data_for_Testing/Booking Data_cleaned.geojson")
-bookings <-read.csv("./Old_Data_for_Testing/Booking Data(1).csv")
-booking_only <- bookings %>% filter(EventType == 'booking')
-booking_only$curb_zone_id <- str_sub(booking_only$OMFCurbZoneID , start= -3)
+
 # load curb zone data
 curb_zone <-  read_json("./resmartloadingzones/curb_zones.json")
 
@@ -154,6 +130,9 @@ regulations <- st_read("./resmartloadingzones/regulations.geojson")
 # load pilot data
 #pre_pilot <- read.xlsx("./PHL_Pre-Pilot NN Collection Data_2022_12.xlsx")
 #mid_pilot <- read.xlsx("./PHL_Mid-Pilot NN Collection_2023_02.xlsx")
+
+# OMF Data
+OMF <- st_read("./zones_with_OMF_vars.geojson")
 
 ```
 
@@ -256,8 +235,6 @@ ggplot() +
 
 ```
 
-
-
 ### Event Data Exploratory Analysis
 ```{r id_clean, include=FALSE}
 event_export$curb_zone_id <- substr(event_export$curb_zone_id, nchar(event_export$curb_zone_id)-2, nchar(event_export$curb_zone_id))
@@ -352,7 +329,7 @@ ggplot(peak_times,aes(x=Hour,y=Events))+
   labs(x="Hour", y = "Events", title="Events by Hour of the Day")
 
   ggplot(byweekend, aes(weekend,Events)) + geom_bar(stat="identity",fill="#1F9E89") + 
-    labs(title="Event Patterns by Weekend vs Weekday", x="Weekend or Weekday", y="Event Counts") + theme_minimal(),
+    labs(title="Event Patterns by Weekend vs Weekday", x="Weekend or Weekday", y="Event Counts") + theme_minimal()
   
 
   grid.arrange(
@@ -392,53 +369,6 @@ ggplot(vehicle_type,aes(x=vehicle_type,y=Total_Events))+
   labs(x="Vehicle Type", y = "Events", title="Events by Vehicle Type")+
   theme_minimal(),
 nrow=2)
-```
-
-```{r}
-# Histogram of parking counts & vehicle type for each curb zone
-event <- event_export%>%select(-event_time_start,-event_time_end,-event_session_id)
-event$curb_zone_id <- str_sub(event$curb_zone_id , start= -3)
-
-event$vehicle_length <- as.character(event$vehicle_length)
-
-ggplot(event_export, aes(x = vehicle_type)) + 
-  geom_histogram(stat="count", fill = "#1F9E89") + 
-  facet_wrap(~ curb_zone_id) + 
-  theme_minimal() + 
-  labs(title = "Histogram of parking counts for each curb zone", x = "curb zone id", y = "Frequency")
-```
-
-
-### Building footprint exploration
-
-```{r}
-# calculate the number of large building (size > 2000 sqft) in the 660 ft buffer of each loading zone 
-coords$bld.Buffer <- coords %>% 
-    st_buffer(660) %>% 
-    aggregate(mutate(bldf, counter = 1),., sum) %>%
-    pull(counter)
-
-# calculate the number of distance to 5 nearest large building
-coords <- coords %>% 
-  mutate(bld_nn5 = nn_function(st_coordinates(st_centroid(coords)), st_coordinates(st_centroid(bldf)), 3))
-```
-
-```{r}
-# join the curb zone id to coords dataset
-zone_id <- booking_only %>% dplyr::select(geometry,curb_zone_id, SmartZoneName, SmartZoneNumber)%>%drop_na()%>%unique()
-zone_id <- zone_id %>% st_drop_geometry() %>% select(-geometry)
-coords <- left_join(coords,zone_id, by = 'SmartZoneName')
-```
-
-
-```{r}
-# plot Distance to Large Building VS Parking Counts
-df_long <- pivot_longer(coords, cols = c(bld.Buffer,bld_nn5,parking_count), names_to = "Group", values_to = "Value")
-ggplot(df_long, aes(x = curb_zone_id, y = Value, fill = Group)) + 
-  geom_bar(stat = "identity", position = "dodge") +  
-  theme_minimal() + 
-  scale_fill_viridis(discrete = TRUE, option = "D") +
-  labs(x = "Category", y = "Value", title = "Distance to Large Building VS Parking Counts") 
 ```
 
 ### OpenStreetMap exploration
@@ -484,7 +414,7 @@ We also collected **office** building types and **land uses** but these data wer
 Assuming that distance to some certain types of buildings relates to how much cars and trucks need to use loading zones there, we calculated the distance from each pilot loading zone to the three nearest of each of these types.
 
 ```{r nearest neighbors, message=FALSE}
-test <- st_read("C:/Users/14145/Box/Practicum_Philly_2024/Michael/zones_nn_3.geojson")
+test <- st_read("./zones_nn_3.geojson")
 
 numeric <- test %>%
   dplyr::select(-c("SmartZoneName")) %>%
@@ -536,9 +466,10 @@ The positive relationships are associated with clinics and community centers.
 
 ### Open Mobility Foundation Data Exploration
 
-We are interested in exploring more datasets, such as the OMF data for for infomation about the curb use in the pilot area.
 
 ```{r omf}
+library(httr)
+library(ggplot2)
 
 # Define the URL and headers for retrieving curb zones data
 url <- "https://creativecommons.org/licenses/by/4.0/"
@@ -580,42 +511,20 @@ if (status_code(response) == 200) {
     # Create visualizations using ggplot2
     ggplot(curb_zones_df, aes(x = longitude, y = latitude)) +
       geom_polygon(fill = "blue") +
-      labs(title = "Philadelphia Loading Zones in Pilot Area") +
+      labs(title = "Philadelphia Loading Zones in Center City Area") +
       theme_minimal()
-  } 
+  } else {
+    print("No curb zones data found.")
+  }
 } else {
   print(paste("Error:", status_code(response)))
 }
 
 
 
-# Set working directory to where the image is located
-setwd("Desktop/MUSA-Practicum-Philly-Loading-Zone-main/total use time OMF.jpg")
-
-# Read the image file
-img <- readJPEG("total use time OMF.jpg")
-
-# Display the image
-imshow(img, main = "Total Curb Space Use Time (in Minute)")
-
-
 ```
 
-Total Use Time Analysis
 
-```{r omf}
-
-# Set working directory to where the image is located
-setwd("Desktop/MUSA-Practicum-Philly-Loading-Zone-main/total use time OMF.jpg")
-
-# Read the image file
-img <- readJPEG("total use time OMF.jpg")
-
-# Display the image
-imshow(img, main = "Total Curb Space Use Time (in Minute)")
-
-
-```
 
 ### Next Steps
 
@@ -630,3 +539,67 @@ Consider input from stakeholders, including businesses, residents, and transport
 3. Use scenario planning:
 Develop scenarios for placing loading zones in different locations within the project area.
 Test each scenario to evaluate its impact on traffic flow, parking availability, and pedestrian safety.
+
+## 3 Feature Engineering
+```{r final}
+final <- event_export %>%
+  group_by(curb_zone_id,week) %>%
+  summarise(Total_Events = n(),
+            Total_Dwell_Time = sum(dwell_time_minutes),
+            Average_Dwell_Time = mean(dwell_time_minutes))
+
+week_dummies <- event_export %>%
+  select(curb_zone_id, week, time_of_day) %>%
+  group_by(curb_zone_id, week, time_of_day) %>%
+  summarise(n = n(), .groups = 'drop') %>%
+  spread(time_of_day, n, fill = 0)  
+
+final <- week_dummies%>%
+  left_join(final, by = c("curb_zone_id", "week"))
+
+dotw_dummies <- event_export %>%
+  select(curb_zone_id, week, dotw) %>%
+  group_by(curb_zone_id, week, dotw) %>%
+  summarise(n = n(), .groups = 'drop') %>%
+  spread(dotw, n, fill = 0)  
+
+final <- dotw_dummies%>%
+  left_join(final, by = c("curb_zone_id", "week"))
+
+vehicle_dummies <- event_export %>%
+  select(curb_zone_id, week, vehicle_type) %>%
+  group_by(curb_zone_id, week, vehicle_type) %>%
+  summarise(n = n(), .groups = 'drop') %>%
+  spread(vehicle_type, n, fill = 0)  
+
+final <- vehicle_dummies%>%
+  left_join(final, by = c("curb_zone_id", "week"))
+```
+
+```{r join_geometry_amenities}
+final_combined <- final %>%
+  left_join(curb_geom[, c("OMFCurbZoneID","SmartZoneName", "geometry")], by = c("curb_zone_id" = "OMFCurbZoneID"))
+
+test_selected <- test %>%
+  select(-events) 
+
+final_panel <- final_combined %>%
+  left_join(test_selected, by = "SmartZoneName")
+```
+
+```{r import_weather, message = FALSE, warning = FALSE }
+
+weather.Panel <- 
+  riem_measures(station = "PHL", date_start = "2022-10-01", date_end = "2023-04-30") %>%
+  dplyr::select(valid, tmpf, p01i, sknt) %>%
+  replace(is.na(.), 0) %>%
+  mutate(interval60 = as.POSIXct(valid, format="%Y-%m-%d %H:%M:%S", tz="UTC")) %>%
+  mutate(week = week(interval60),
+         year = year(interval60),
+         dotw = wday(interval60, label=TRUE)) %>%
+  group_by(year, week) %>%
+  summarize(Precipitation = sum(p01i, na.rm = TRUE), .groups = 'drop')
+
+```
+
+## 4 Predictive Model
