@@ -72,6 +72,7 @@ library(lubridate)
 library(dplyr)
 library(tidyr)
 library(reshape2)
+library(riem)
 
 #library(rjson)
 
@@ -262,9 +263,9 @@ event_export <- event_export%>%
          interval60=floor_date(event_time_start,unit ="hour"),
          interval15=floor_date(event_time_start,unit="15 mins"),
          time_of_day=case_when(hour(interval60)<7 | hour(interval60)>19 ~ "overnight",
-                               hour(interval60)>=7 & hour(interval60)<10 ~ "AM Rush",
-                               hour(interval60)>=10 & hour(interval60)<15 ~ "Mid Day",
-                               hour(interval60)>=15 & hour(interval60)<=19 ~ "PM Rush"),
+                               hour(interval60)>=7 & hour(interval60)<10 ~ "AM_Rush",
+                               hour(interval60)>=10 & hour(interval60)<15 ~ "Mid_Day",
+                               hour(interval60)>=15 & hour(interval60)<=19 ~ "PM_Rush"),
          weekend=ifelse(dotw %in% c('Sun','Sat'),'Weekend','Weekday'))
 
 head(event_export)
@@ -539,7 +540,7 @@ Consider input from stakeholders, including businesses, residents, and transport
 Develop scenarios for placing loading zones in different locations within the project area.
 Test each scenario to evaluate its impact on traffic flow, parking availability, and pedestrian safety.
 
-## 3 Predictive Model
+## 3 Feature Engineering
 ```{r final}
 final <- event_export %>%
   group_by(curb_zone_id,week) %>%
@@ -573,5 +574,97 @@ vehicle_dummies <- event_export %>%
 
 final <- vehicle_dummies%>%
   left_join(final, by = c("curb_zone_id", "week"))
+```
+
+```{r join_geometry_amenities}
+final_combined <- final %>%
+  left_join(curb_geom[, c("OMFCurbZoneID","SmartZoneName", "geometry")], by = c("curb_zone_id" = "OMFCurbZoneID"))
+
+test_selected <- test %>%
+  select(-events) 
+
+final_panel <- final_combined %>%
+  left_join(test_selected, by = "SmartZoneName")
+```
+
+```{r import_weather, message = FALSE, warning = FALSE }
+
+weather.Panel <- 
+  riem_measures(station = "PHL", date_start = "2022-10-01", date_end = "2023-04-30") %>%
+  dplyr::select(valid, tmpf, p01i, sknt) %>%
+  replace(is.na(.), 0) %>%
+  mutate(interval60 = as.POSIXct(valid, format="%Y-%m-%d %H:%M:%S", tz="UTC")) %>%
+  mutate(week = week(interval60),
+         year = year(interval60),
+         dotw = wday(interval60, label=TRUE)) %>%
+  group_by(year, week) %>%
+  summarize(Precipitation = sum(p01i, na.rm = TRUE), .groups = 'drop')
+
+final_panel <- final_panel %>%
+  left_join(weather.Panel[, c("week", "Precipitation")], by = c("week"))
+
+final_panel <- final_panel%>%
+  select(-AM_Rush)
+```
+
+```{r finalpanel, eval=FALSE, include=FALSE}
+st_write(final_panel, "./finalpanel.geojson")
+```
+
+```{r}
+# Subset the dataframe to include only numeric columns
+numeric_columns <- sapply(final_panel, is.numeric)
+dat_num <- final_panel[, numeric_columns] %>% st_drop_geometry()
+dat_nn <- dat_num %>%na.omit()
+
+
+model_info <- data.frame(Variable = character(),
+                         Estimate = numeric(),
+                         StdError = numeric(),
+                         tValue = numeric(),
+                         pValue = numeric(),
+                         stringsAsFactors = FALSE)
+
+# Loop through each numeric variable, excluding the target variable
+for(var in setdiff(names(dat_num), "Total_Events")) {
+  formula <- as.formula(paste("Total_Events ~", var))
+  model <- lm(formula, data = dat_num)
+  summary_model <- summary(model)
+  
+  # Extracting key information
+  model_info <- rbind(model_info, data.frame(Variable = var,
+                                             Estimate = summary_model$coefficients[2, 1],
+                                             StdError = summary_model$coefficients[2, 2],
+                                             tValue = summary_model$coefficients[2, 3],
+                                             pValue = summary_model$coefficients[2, 4]))
+}
+
+```
+
+```{r}
+model_info_sub <- final_panel%>% select(car,PM_Rush,overnight,Total_Dwell_Time,Sat,Wed,Thu,Fri,Tue,Mon,Sun,nn1_conference_centre_amenity,nn2_conference_centre_amenity,nn3_conference_centre_amenity,nn3_department_store_shop,nn2_clinic_amenity,nn2_department_store_shop,nn3_place_of_worship_amenity,nn2_place_of_worship_amenity,nn1_place_of_worship_amenity,nn1_department_store_shop,nn1_clinic_amenity,nn1_church_building,nn2_church_building,nn3_church_building,nn2_beverages_shop,nn2_clothes_shop,Total_Events)
+
+
+ggcorrplot(
+  round(cor(model_info_sub %>% st_drop_geometry()), 1), 
+  p.mat = cor_pmat(model_info_sub), # Changed df to model_info_sub
+  colors = c("#E63946", "white", "#2A9D8F"),
+  type = "lower",
+  insig = "blank",
+  lab = TRUE
+) + labs(title = 'Correlation across selected vars')
+
+
+```
+
+## 4 Predictive Model
+```{r}
+curb.Train <- filter(merged_dataset_model, week >= 40)
+curb.Test <- filter(merged_dataset_model, week <= 17)
+
+model <- 
+  lm(Total_Events ~ , 
+     data=curb.Train)
+
 ```
 
