@@ -607,6 +607,9 @@ final_panel <- final_panel%>%
   select(-AM_Rush)
 ```
 
+```{r finalpanel, eval=FALSE, include=FALSE}
+st_write(final_panel, "./finalpanel.geojson")
+```
 
 ```{r}
 # Subset the dataframe to include only numeric columns
