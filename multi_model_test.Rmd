@@ -661,3 +661,78 @@ predicted_values <- preds$mu
 predicted_variance <- preds$var
 ```
 
+```{r}
+X <- model.matrix(~week + Weekend_dummy + retail_nn1 + quick_grocery_nn2 + CLASS_2 + Bike_Network_dummy + parking_nn2 + school_nn3 + healthcare_nn3 + attraction_nn3 +dining_nn3 + housing_nn2 + commercial_nn2, data = data)
+
+# The 'Day' column as factor for group data
+group_data <- as.factor(data$Day)
+
+# Assuming 'bookings' is count data and using "poisson" likelihood
+likelihood <- "poisson"
+
+# Fit the GPBoost model
+gp_model <- fitGPModel(
+  group_data = group_data,
+  y = data$bookings,
+  X = X, # Include the design matrix with multiple predictors
+  likelihood = likelihood
+)
+
+# Summary of the model
+summary(gp_model)
+
+# For predictions (example uses the same dataset)
+preds <- predict(
+  gp_model,
+  X_pred = X, # The design matrix for predictions
+  group_data_pred = group_data,
+  predict_response = TRUE
+)
+
+# Access predicted values
+predicted_values <- preds$mu
+```
+
+
+```{r}
+# Assuming 'df' is your dataset
+set.seed(123) # Setting seed for reproducibility
+n <- nrow(data)
+indices <- sample(1:n, size = round(0.7 * n)) # 70% for training
+
+# Splitting the dataset
+train_data <- data[indices, ]
+test_data <- data[-indices, ]
+
+```
+
+```{r}
+# For the training data
+X_train <- model.matrix(~ week + Weekend_dummy + retail_nn1 + quick_grocery_nn2 + CLASS_2 + Bike_Network_dummy + parking_nn2 + school_nn3 + healthcare_nn3 + attraction_nn3 +dining_nn3 + housing_nn2 + commercial_nn2, data = train_data)
+y_train <- train_data$bookings
+group_train <- as.factor(train_data$Day)
+
+# For the test data
+X_test <- model.matrix(~  week + Weekend_dummy + retail_nn1 + quick_grocery_nn2 + CLASS_2 + Bike_Network_dummy + parking_nn2 + school_nn3 + healthcare_nn3 + attraction_nn3 +dining_nn3 + housing_nn2 + commercial_nn2, data = test_data)
+y_test <- test_data$bookings
+group_test <- as.factor(test_data$Day)
+
+```
+
+```{r}
+library(gpboost)
+gp_model <- fitGPModel(
+  group_data = group_train,
+  y = y_train,
+  X = X_train,
+  likelihood = "poisson" # Adjust based on your response variable
+)
+
+```
+
+```{r}
+# Calculate RMSE for a count (Poisson) response variable
+rmse <- sqrt(mean((preds$mu - y_test)^2))
+rmse
+
+```
