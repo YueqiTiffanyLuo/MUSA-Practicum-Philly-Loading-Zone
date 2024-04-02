@@ -467,7 +467,7 @@ The positive relationships are associated with clinics and community centers.
 ### Open Mobility Foundation Data Exploration
 
 
-```{r omf}
+```{r omf, eval=FALSE, include=FALSE}
 library(httr)
 library(ggplot2)
 
@@ -658,13 +658,47 @@ ggcorrplot(
 ```
 
 ## 4 Predictive Model
-```{r}
-curb.Train <- filter(merged_dataset_model, week >= 40)
-curb.Test <- filter(merged_dataset_model, week <= 17)
+```{r excludeEvents}
+panel <- final_panel %>%
+  select(-c("week", "car", "freight", "truck", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat",
+                "Mid_Day", "overnight", "PM_Rush", "Total_Dwell_Time", "Average_Dwell_Time", 
+                "curb_zone_id", "van")) %>%
+  mutate(log_events = log10(Total_Events))
 
-model <- 
-  lm(Total_Events ~ , 
-     data=curb.Train)
+#Set random seed
+set.seed(1999)
+
+#use 70% of dataset as training set and 30% as test set
+sample <- sample(c(TRUE, FALSE), nrow(panel), replace=TRUE, prob=c(0.7,0.3))
+train  <- panel[sample, ]
+test   <- panel[!sample, ]
+
+model = train %>%
+  select(-c("log_events","SmartZoneName","geometry.x","geometry.y")) %>%
+  lm(Total_Events ~ ., data = .)
+summary(model) #adj R^2 of 0.86
+```
+
+
+```{r}
+panel1 <- final_panel %>%
+  select(c("SmartZoneName","Total_Events","week", "car", "freight", "truck", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat",
+                "Mid_Day", "overnight", "PM_Rush", "Total_Dwell_Time", "Average_Dwell_Time", 
+                "curb_zone_id", "van")) %>%
+  mutate(log_events = log10(Total_Events))
+
+#Set random seed
+set.seed(1999)
+
+#use 70% of dataset as training set and 30% as test set
+sample1 <- sample(c(TRUE, FALSE), nrow(panel1), replace=TRUE, prob=c(0.7,0.3))
+train1  <- panel1[sample1, ]
+test1   <- panel1[!sample1, ]
+
+model1 = train1 %>%
+  select(-c("log_events","SmartZoneName","curb_zone_id")) %>%
+  lm(Total_Events ~ ., data = .)
+summary(model1) #adj R^2 of 1
 
 ```
 
