@@ -1,0 +1,534 @@
+---
+title: "RandomForest"
+author: "Ling Chen"
+date: "2024-03-31"
+output: html_document
+---
+
+```{r , include=FALSE}
+
+# You can set some global options for knitting chunks
+
+knitr::opts_chunk$set(echo = TRUE)
+
+# Load some libraries
+
+library(tidyverse)
+library(tidycensus)
+library(sf)
+library(spdep)
+library(caret)
+library(ckanr)
+library(FNN)
+library(grid)
+library(gridExtra)
+library(ggcorrplot) # plot correlation plot
+library(corrr)      # another way to plot correlation plot
+library(kableExtra)
+library(broom)
+library(tufte)
+library(rmarkdown)
+library(hexbin)
+library(viridis)
+library(cbsodataR)
+library(jtools)     # for regression model plots
+library(ggstance) # to support jtools plots
+library(ggpubr)    # plotting R^2 value on ggplot point scatter
+library(broom.mixed) # needed for effects plots
+library(stargazer)
+library(jsonlite)
+library(ggplot2)
+library(tmap)
+library(tmaptools)
+library(leaflet)
+library(raster)
+library(RColorBrewer)
+library(mapview)
+library(leaflet)
+library(plotly)
+library(ggspatial)
+library(openxlsx)
+library(lubridate)
+library(dplyr)
+library(tidyr)
+library(reshape2)
+library(riem)
+library(randomForest)
+library(openxlsx)
+
+#library(rjson)
+
+# functions and data directory
+
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+
+palette2 <- c('#3E4A89','#1F9E89')
+palette4 <- c('#3E4A89','#1F9E89','#35B779','#B4DE2C')
+palette5 <- c('#440154','#3E4A89','#1F9E89','#35B779','#B4DE2C')
+palette6 <- c('#440154','#3E4A89','#1F9E89','#35B779','#B4DE2C','#FDE725')
+palette10 <- c('#440154','#482777','#3E4A89','#31688E','#26828E','#1F9E89','#35B779','#6DCD59','#B4DE2C','#FDE725')
+
+```
+
+```{r setting working directory}
+#Shengqian
+#setwd("/Users/sqwang/Library/CloudStorage/OneDrive-PennO365/penn/6th/Practicum/Data")
+
+#Sam
+#setwd("")
+
+#michael
+#setwd("")
+
+#tiffany
+#setwd("")
+
+#ling
+setwd("/Users/lingchen/Documents/Practicum/Practicum_Philly_2024/Data")
+
+simple_panel <- read.csv("./03_31_panel.csv")
+detail_panel <- read.csv("./detailed_03_31_panel.csv")
+panel <- read.csv("./updated_04_01_panel.csv")
+geo <- read.csv("./geometry.csv")
+try <- read_sf("./finalpanel.geojson")
+```
+
+```{r}
+all <- panel %>%
+  select(1:4, 42:49) %>%
+  left_join(detail_panel, by = c("SmartZoneName","curb_zone_id", "week", "Day"))%>%
+  select(-geometry)
+
+```
+
+
+```{r}
+set.seed(123)
+
+train_index <- sample(1:nrow(all), nrow(all) * 0.7)
+
+train_set <- all[train_index, ]
+test_set <- all[-train_index, ]
+```
+
+# Detailed Panel
+## Hyper Parameters
+```{r}
+# 定义一个5折交叉验证
+# 定义模型训练参数，method确定多次交叉检验的抽样方法，number确定了划分的重数
+trControl <- trainControl(method = "cv",
+    number = 5,
+    search = "grid")
+
+# 调参
+# 选最优mtry(每棵树使用的特征个数,指定节点中用于树的变量个数，默认情况下数据集变量个数的二次方根（分类模型）或三分之一（预测模型）)
+set.seed(2024)
+# 尝试 mtry 从30到70，步长为5
+tuneGrid <- expand.grid(.mtry = seq(30, 70, by = 5))
+
+
+rf_mtry <- train(bookings~.,
+    data = train_set,
+    method = "rf",        # 可以用names(getModelInfo())查看所有可用方法
+    metric = "RMSE", 
+    tuneGrid = tuneGrid,
+    trControl = trControl,
+    importance = TRUE,
+    ntree = 100)
+
+print(rf_mtry)
+
+# best mtry=55
+best_mtry <- rf_mtry$bestTune$mtry
+
+```
+
+```{r eval=FALSE, include=FALSE}
+# 选最佳maxnodes值（指定树节点的最大个数）
+store_maxnode <- list()
+tuneGrid <- expand.grid(.mtry = best_mtry)
+for (maxnodes in c(2: 20)) {
+    set.seed(2024)
+    rf_maxnode <- train(bookings~.,
+        data = train_set,
+        method = "rf",
+        metric = "RMSE",
+        tuneGrid = tuneGrid,
+        trControl = trControl,
+        importance = TRUE,
+        maxnodes = maxnodes,
+        ntree = 300)
+    current_iteration <- toString(maxnodes)
+    store_maxnode[[current_iteration]] <- rf_maxnode
+}
+# best maxnodes=20
+results_maxnode <- resamples(store_maxnode)
+summary(results_maxnode)
+```
+
+```{r eval=FALSE, include=FALSE}
+# 选最佳nodesize值（指定树节点的最小个数，默认情况下，判别模型为1，回归模型为5；）
+store_nodesize <- list()
+tuneGrid <- expand.grid(.mtry = best_mtry)
+for (nodesize in c(2: 20)) {
+    set.seed(2024)
+    rf_nodesize <- train(bookings~.,
+        data = train_set,
+        method = "rf",
+        metric = "RMSE",
+        tuneGrid = tuneGrid,
+        trControl = trControl,
+        importance = TRUE,
+        maxnodes = 20,
+        nodesize = nodesize,
+        ntree = 300)
+    current_iteration <- toString(nodesize)
+    store_nodesize[[current_iteration]] <- rf_nodesize
+}
+# best nodesize=20
+results_nodesize <- resamples(store_nodesize)
+summary(results_nodesize)
+```
+
+```{r eval=FALSE, include=FALSE}
+# 寻找最佳ntree(在森林中树的个数，默认是500)
+store_maxtrees <- list()
+for (ntree in c(100, 250, 300, 350, 400, 450, 500, 550, 600, 800, 1000, 2000, 3000)) {
+    set.seed(2024)
+    rf_maxtrees <- train(bookings~.,
+        data = train_set,
+        method = "rf",
+        metric = "RMSE",
+        tuneGrid = tuneGrid,
+        trControl = trControl,
+        importance = TRUE,
+        maxnodes = 20,
+        ntree = ntree)
+    key <- toString(ntree)
+    store_maxtrees[[key]] <- rf_maxtrees
+}
+results_tree <- resamples(store_maxtrees)
+# 3000, too complicate
+summary(results_tree)
+```
+
+## Random Forest Model
+```{r}
+train_set<- train_set%>%
+  select(-SmartZoneName,-curb_zone_id,-week,-Day)
+tuneGrid <- expand.grid(.mtry = best_mtry)
+fit_rf <- train(bookings~.,
+    train_set,
+    method = "rf",
+    metric = "RMSE",
+    tuneGrid = tuneGrid,
+    trControl = trControl,
+    importance = TRUE,
+    ntree = 700,
+    nodesize = 5,
+    maxnodes = 20)
+# 查看各个特征的重要程度
+varImp(fit_rf)
+# 对测试数据进行预测
+prediction <-predict(fit_rf, test_set)
+
+```
+
+
+```{r}
+top_n <- 20
+
+ImpData <- as.data.frame(varImp(fit_rf)$importance)
+ImpData$Var.Names <- row.names(ImpData)
+
+# Sort by importance, and take the top 'top_n' most important variables
+ImpDataTop <- ImpData %>%
+  top_n(top_n, Overall) %>%
+  arrange(desc(Overall))
+
+# Use the filtered data frame to create a chart
+ggplot(ImpDataTop, aes(x=Var.Names, y=Overall)) +
+  geom_segment(aes(x=Var.Names, xend=Var.Names, y=0, yend=Overall), color="skyblue") +
+  geom_point(aes(y=Overall), color="blue", alpha=0.6) +  # Plot points using the Overall column
+  theme_light() +
+  coord_flip() +  # Display variable names on the y-axis
+  theme(
+    legend.position="none",  # Remove legend
+    panel.grid.major.y = element_blank(),
+    panel.border = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.text.y = element_text(size = 10)  # Adjust font size
+  ) +
+  labs(x = "Variable Name", y = "Importance", title = "Top Variable Importance")
+
+```
+
+```{r}
+# Assuming 'prediction' contains your model's predictions and 'test_set' is your test dataset
+# Add a residuals column to test_set
+test_set <- test_set %>%
+  mutate(
+    Prediction = prediction,
+    Residual = bookings - Prediction,
+    AbsResidual = abs(Residual)
+  )
+```
+
+```{r}
+# Now group by SmartZoneName and summarize the residuals
+error_analysis_curb <- test_set %>%
+  group_by(SmartZoneName) %>%
+  summarise(
+    MeanResidual = mean(Residual, na.rm = TRUE),
+    MeanAbsResidual = mean(AbsResidual, na.rm = TRUE),
+    MSE = mean(Residual^2, na.rm = TRUE),
+    Count = n()
+  ) %>%
+  arrange(desc(MeanAbsResidual))
+
+# View the error analysis results
+print(error_analysis_curb)
+
+geo <- geo %>%
+  select(SmartZoneName,geometry)%>%
+  distinct(SmartZoneName, geometry)
+
+geo_points <- geo$geometry %>%
+  stringr::str_extract_all("[-]?[0-9]+\\.[0-9]+") %>% # 提取所有数字（包括小数点和负号）
+  purrr::map(~st_point(as.numeric(.x), dim = "XY")) # 将每个提取出来的数值向量转换为POINT对象
+
+geo_sf <- st_as_sf(geo, geometry = do.call("st_sfc", geo_points), crs = 4326) %>% # crs 4326是WGS84坐标系
+  select(-geometry)
+
+error_analysis_curb <- geo_sf %>%
+  left_join(error_analysis_curb, by=c("SmartZoneName"))
+
+ggplot(error_analysis_curb) +
+  geom_sf(aes(color = MeanResidual)) +
+  labs(color = 'Mean Residual') +
+  theme_minimal()
+```
+
+
+```{r}
+# Now group by SmartZoneName and summarize the residuals
+error_analysis_day <- test_set %>%
+  group_by(Day) %>%
+  summarise(
+    MeanResidual = mean(Residual, na.rm = TRUE),
+    MeanAbsResidual = mean(AbsResidual, na.rm = TRUE),
+    MSE = mean(Residual^2, na.rm = TRUE),
+    Count = n()
+  ) %>%
+  arrange(desc(MeanAbsResidual))
+
+# View the error analysis results
+print(error_analysis_day)
+
+```
+
+```{r}
+# Now group by SmartZoneName and summarize the residuals
+error_analysis_day <- test_set %>%
+  group_by(Day) %>%
+  summarise(
+    MeanResidual = mean(Residual, na.rm = TRUE),
+    MeanAbsResidual = mean(AbsResidual, na.rm = TRUE),
+    MSE = mean(Residual^2, na.rm = TRUE),
+    Count = n()
+  ) %>%
+  arrange(desc(MeanAbsResidual))
+
+# View the error analysis results
+print(error_analysis_day)
+
+```
+
+```{r}
+# Now group by SmartZoneName and summarize the residuals
+error_analysis_weekend <- test_set %>%
+  group_by(Weekend_dummy) %>%
+  summarise(
+    MeanResidual = mean(Residual, na.rm = TRUE),
+    MeanAbsResidual = mean(AbsResidual, na.rm = TRUE),
+    MSE = mean(Residual^2, na.rm = TRUE),
+    Count = n()
+  ) %>%
+  arrange(desc(MeanAbsResidual))
+
+# View the error analysis results
+print(error_analysis_weekend)
+
+```
+
+# Simplified Panel
+```{r}
+set.seed(123)
+
+train_index_simple <- sample(1:nrow(panel), nrow(panel) * 0.7)
+
+train_set_simple <- panel[train_index_simple, ]
+test_set_simple <- panel[-train_index_simple, ]
+```
+
+## Hyper Parameters
+```{r}
+# 定义一个5折交叉验证
+# 定义模型训练参数，method确定多次交叉检验的抽样方法，number确定了划分的重数
+trControl <- trainControl(method = "cv",
+    number = 5,
+    search = "grid")
+
+# 调参
+# 选最优mtry(每棵树使用的特征个数,指定节点中用于树的变量个数，默认情况下数据集变量个数的二次方根（分类模型）或三分之一（预测模型）)
+set.seed(2024)
+# 尝试 mtry 从30到70，步长为5
+tuneGrid <- expand.grid(.mtry = seq(30, 70, by = 5))
+
+
+rf_mtry_2 <- train(bookings~.,
+    data = train_set_simple,
+    method = "rf",        # 可以用names(getModelInfo())查看所有可用方法
+    metric = "RMSE", 
+    tuneGrid = tuneGrid,
+    trControl = trControl,
+    importance = TRUE,
+    ntree = 100)
+
+print(rf_mtry_2)
+
+# best mtry=40
+best_mtry_2 <- rf_mtry_2$bestTune$mtry
+
+```
+
+```{r eval=FALSE, include=FALSE}
+# 选最佳maxnodes值（指定树节点的最大个数）
+store_maxnode <- list()
+tuneGrid <- expand.grid(.mtry = best_mtry_2)
+for (maxnodes in c(2: 20)) {
+    set.seed(2024)
+    rf_maxnode <- train(bookings~.,
+        data = train_set_simple,
+        method = "rf",
+        metric = "RMSE",
+        tuneGrid = tuneGrid,
+        trControl = trControl,
+        importance = TRUE,
+        maxnodes = maxnodes,
+        ntree = 300)
+    current_iteration <- toString(maxnodes)
+    store_maxnode[[current_iteration]] <- rf_maxnode
+}
+# best maxnodes=20
+results_maxnode <- resamples(store_maxnode)
+summary(results_maxnode)
+```
+
+```{r eval=FALSE, include=FALSE}
+# 选最佳nodesize值（指定树节点的最小个数，默认情况下，判别模型为1，回归模型为5；）
+store_nodesize <- list()
+tuneGrid <- expand.grid(.mtry = best_mtry_2)
+for (nodesize in c(2: 20)) {
+    set.seed(2024)
+    rf_nodesize <- train(bookings~.,
+        data = train_set_simple,
+        method = "rf",
+        metric = "RMSE",
+        tuneGrid = tuneGrid,
+        trControl = trControl,
+        importance = TRUE,
+        maxnodes = 20,
+        nodesize = nodesize,
+        ntree = 300)
+    current_iteration <- toString(nodesize)
+    store_nodesize[[current_iteration]] <- rf_nodesize
+}
+# best nodesize=20
+results_nodesize <- resamples(store_nodesize)
+summary(results_nodesize)
+```
+
+```{r eval=FALSE, include=FALSE}
+# 寻找最佳ntree(在森林中树的个数，默认是500)
+store_maxtrees <- list()
+for (ntree in c(100, 250, 300, 350, 400, 450, 500, 550, 600, 800, 1000, 2000, 3000)) {
+    set.seed(2024)
+    rf_maxtrees <- train(bookings~.,
+        data = train_set_simple,
+        method = "rf",
+        metric = "RMSE",
+        tuneGrid = tuneGrid,
+        trControl = trControl,
+        importance = TRUE,
+        maxnodes = 20,
+        ntree = ntree)
+    key <- toString(ntree)
+    store_maxtrees[[key]] <- rf_maxtrees
+}
+results_tree <- resamples(store_maxtrees)
+# ？
+summary(results_tree)
+```
+
+## Random Forest Model
+```{r}
+train_set_simple<- train_set_simple%>%
+  select(-SmartZoneName,-curb_zone_id,-week,-Day,-geometry)
+tuneGrid <- expand.grid(.mtry = best_mtry_2)
+fit_rf_simple <- train(bookings~.,
+    train_set_simple,
+    method = "rf",
+    metric = "RMSE",
+    tuneGrid = tuneGrid,
+    trControl = trControl,
+    importance = TRUE,
+    ntree = 700,
+    nodesize = 5,
+    maxnodes = 20)
+# 查看各个特征的重要程度
+varImp(fit_rf_simple)
+# 对测试数据进行预测
+prediction <-predict(fit_rf_simple, test_set_simple)
+
+```
+
+
+```{r}
+top_n <- 20
+
+ImpData <- as.data.frame(varImp(fit_rf_simple)$importance)
+ImpData$Var.Names <- row.names(ImpData)
+
+# Sort by importance, and take the top 'top_n' most important variables
+ImpDataTop <- ImpData %>%
+  top_n(top_n, Overall) %>%
+  arrange(desc(Overall))
+
+# Use the filtered data frame to create a chart
+ggplot(ImpDataTop, aes(x=Var.Names, y=Overall)) +
+  geom_segment(aes(x=Var.Names, xend=Var.Names, y=0, yend=Overall), color="skyblue") +
+  geom_point(aes(y=Overall), color="blue", alpha=0.6) +  # Plot points using the Overall column
+  theme_light() +
+  coord_flip() +  # Display variable names on the y-axis
+  theme(
+    legend.position="none",  # Remove legend
+    panel.grid.major.y = element_blank(),
+    panel.border = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.text.y = element_text(size = 10)  # Adjust font size
+  ) +
+  labs(x = "Variable Name", y = "Importance", title = "Top Variable Importance")
+
+```
+
+```{r}
+# Assuming 'prediction' contains your model's predictions and 'test_set' is your test dataset
+# Add a residuals column to test_set
+test_set_simple <- test_set_simple %>%
+  mutate(
+    Prediction = prediction,
+    Residual = bookings - Prediction,
+    AbsResidual = abs(Residual)
+  )
+```
