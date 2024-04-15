@@ -91,6 +91,9 @@ detail_panel <- read.csv("./detailed_03_31_panel.csv")
 panel <- read.csv("./updated_04_01_panel.csv")
 geo <- read.csv("./geometry.csv")
 try <- read_sf("./finalpanel.geojson")
+add <- read_sf("./add.geojson")
+road_class <- read_sf("./bookings_road_class_nn.geojson")
+all_curbs <- read_sf("./all_curbs_0411.geojson")
 ```
 
 ```{r}
@@ -216,7 +219,7 @@ summary(results_tree)
 ```{r}
 train_set<- train_set%>%
   select(-SmartZoneName,-curb_zone_id,-week,-Day)
-tuneGrid <- expand.grid(.mtry = best_mtry)
+tuneGrid <- expand.grid(.mtry = 55)
 fit_rf <- train(bookings~.,
     train_set,
     method = "rf",
@@ -363,6 +366,19 @@ print(error_analysis_weekend)
 
 # Simplified Panel
 ```{r}
+st_geometry(road_class) <- NULL
+panel <- merge(panel, road_class, by = 'SmartZoneName', all.x = TRUE) %>%
+  select(-Chestnut_St,-Walnut_St,-Sansom_St,-Broad_St,-east_bound,-west_bound,-two_way_north_south)%>%
+  rename(day=Day)
+
+add <- add %>%
+  rename(bookings=Total_Events)
+  
+st_geometry(add) <- NULL
+
+panel2 <- panel%>%
+  left_join(add,by=c("SmartZoneName","curb_zone_id","week","day","bookings"))
+
 set.seed(123)
 
 train_index_simple <- sample(1:nrow(panel), nrow(panel) * 0.7)
@@ -397,7 +413,7 @@ rf_mtry_2 <- train(bookings~.,
 
 print(rf_mtry_2)
 
-# best mtry=40
+# best mtry=30
 best_mtry_2 <- rf_mtry_2$bestTune$mtry
 
 ```
@@ -474,7 +490,7 @@ summary(results_tree)
 ## Random Forest Model
 ```{r}
 train_set_simple<- train_set_simple%>%
-  select(-SmartZoneName,-curb_zone_id,-week,-Day,-geometry)
+  select(-SmartZoneName,-curb_zone_id,-week,-day,-geometry)
 tuneGrid <- expand.grid(.mtry = best_mtry_2)
 fit_rf_simple <- train(bookings~.,
     train_set_simple,
@@ -531,4 +547,123 @@ test_set_simple <- test_set_simple %>%
     Residual = bookings - Prediction,
     AbsResidual = abs(Residual)
   )
+write_csv(test_set_simple,"./testresult.csv")
+```
+
+```{r}
+error_analysis_curb <- test_set_simple %>%
+  group_by(SmartZoneName,CLASS_2) %>%
+  summarise(
+    MeanResidual = mean(Residual, na.rm = TRUE),
+    MeanAbsResidual = mean(AbsResidual, na.rm = TRUE),
+    MSE = mean(Residual^2, na.rm = TRUE),
+    Count = n()
+  ) %>%
+  arrange(desc(MeanAbsResidual))
+```
+
+
+```{r}
+# Now group by SmartZoneName and summarize the residuals
+
+error_analysis_curb <- test_set_simple %>%
+  group_by(SmartZoneName, CLASS_2) %>%
+  summarise(
+    MeanResidual = mean(Residual, na.rm = TRUE),  # 平均误差
+    MAE = mean(AbsResidual, na.rm = TRUE),  # 平均绝对误差（MAE）
+    MSE = mean(Residual^2, na.rm = TRUE),  # 均方误差
+    RMSE = sqrt(MSE),  # 均方根误差
+    Count = n(),  # 计数
+    .groups = "drop"  # 防止之后版本的 dplyr 报错
+  ) %>%
+  arrange(desc(MAE))
+
+# View the error analysis results
+print(error_analysis_curb)
+
+geo <- geo %>%
+  select(SmartZoneName,geometry)%>%
+  distinct(SmartZoneName, geometry)
+
+geo_points <- geo$geometry %>%
+  stringr::str_extract_all("[-]?[0-9]+\\.[0-9]+") %>% # 提取所有数字（包括小数点和负号）
+  purrr::map(~st_point(as.numeric(.x), dim = "XY")) # 将每个提取出来的数值向量转换为POINT对象
+
+geo_sf <- st_as_sf(geo, geometry = do.call("st_sfc", geo_points), crs = 4326) %>% # crs 4326是WGS84坐标系
+  select(-geometry)
+
+error_analysis_curb <- geo_sf %>%
+  left_join(error_analysis_curb, by=c("SmartZoneName"))
+
+# Set tmap mode to view for interactive maps
+tmap_mode("view")
+
+tm <- tm_shape(error_analysis_curb) +
+  tm_bubbles(size = "MAE", col = "MAE", palette = "viridis", scale=5, border.col = "black", 
+             title.size = "MAE", title.col = "MAE") 
+tm
+```
+
+```{r}
+
+```
+
+```{r}
+# Now group by SmartZoneName and summarize the residuals
+error_analysis_day <- test_set_simple %>%
+  group_by(Day) %>%
+  summarise(
+    MeanResidual = mean(Residual, na.rm = TRUE),
+    MAE = mean(AbsResidual, na.rm = TRUE),
+    MSE = mean(Residual^2, na.rm = TRUE),
+    Count = n()
+  ) %>%
+  arrange(desc(MAE))
+
+# View the error analysis results
+print(error_analysis_day)
+
+error_analysis_day$Day <- factor(error_analysis_day$Day, 
+                                 levels = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"), 
+                                 ordered = TRUE)
+
+
+ggplot(error_analysis_day, aes(x = Day, y = MAE)) +
+  geom_point(aes(size = Count, color = MAE)) +  
+  scale_color_gradient(low = "#35B779", high = "#440154") +  
+  labs(x = "Day of the Week", 
+       y = "Mean Absolute Error (MAE)", 
+       title = "Daily Mean Absolute Error") +
+  theme_minimal() +
+  theme(legend.position = "bottom") 
+
+```
+
+
+```{r}
+# Now group by SmartZoneName and summarize the residuals
+error_analysis_weekend <- test_set_simple %>%
+  group_by(Weekend_dummy) %>%
+  summarise(
+    MeanResidual = mean(Residual, na.rm = TRUE),
+    MAE = mean(AbsResidual, na.rm = TRUE),
+    MSE = mean(Residual^2, na.rm = TRUE),
+    Count = n()
+  ) %>%
+  arrange(desc(MAE))
+
+# View the error analysis results
+print(error_analysis_weekend)
+
+ggplot(error_analysis_weekend, aes(x = factor(Weekend_dummy), y = MAE)) +
+  geom_bar(stat = "identity", aes(fill = factor(Weekend_dummy))) +
+  scale_colour_viridis(direction = -1,discrete = FALSE, option = "C") +
+  labs(x = "Weekend (1) or Not (0)", y = "Mean Absolute Residual", 
+       title = "Mean Absolute Residuals by Weekend or Weekday") +
+  theme_minimal()
+
+```
+
+```{r finalpanel, eval=FALSE, include=FALSE}
+st_write(test_set_simple, "./prediction.geojson")
 ```
