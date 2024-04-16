@@ -1,0 +1,532 @@
+---
+title: "Modeling and App Development: Philadelphia Curbs
+"
+author: "Samriddhi Khare, Michael Dunst, Ling Chen, Tiffany Luo, Shengqian Wang"
+date: "2024-04-09"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+    number_sections: yes
+    theme: sandstone
+    highlight: tango
+    fig_retina: 2
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r , include=FALSE, include=FALSE}
+
+# You can set some global options for knitting chunks
+
+knitr::opts_chunk$set(echo = TRUE)
+
+# Load some libraries
+
+library(tidyverse)
+library(tidycensus)
+library(sf)
+library(spdep)
+library(caret)
+library(ckanr)
+library(FNN)
+library(grid)
+library(gridExtra)
+library(ggcorrplot) # plot correlation plot
+library(corrr)      # another way to plot correlation plot
+library(kableExtra)
+library(broom)
+library(tufte)
+library(rmarkdown)
+library(hexbin)
+library(viridis)
+library(cbsodataR)
+library(jtools)     # for regression model plots
+library(ggstance) # to support jtools plots
+library(ggpubr)    # plotting R^2 value on ggplot point scatter
+library(broom.mixed) # needed for effects plots
+library(stargazer)
+library(jsonlite)
+library(ggplot2)
+library(tmap)
+library(tmaptools)
+library(leaflet)
+library(raster)
+library(RColorBrewer)
+library(mapview)
+library(leaflet)
+library(plotly)
+library(ggspatial)
+library(openxlsx)
+library(lubridate)
+library(dplyr)
+library(tidyr)
+library(reshape2)
+library(riem)
+library(randomForest)
+library(openxlsx)
+
+#library(rjson)
+
+# functions and data directory
+
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+
+palette2 <- c('#3E4A89','#1F9E89')
+palette4 <- c('#3E4A89','#1F9E89','#35B779','#B4DE2C')
+palette5 <- c('#440154','#3E4A89','#1F9E89','#35B779','#B4DE2C')
+palette6 <- c('#440154','#3E4A89','#1F9E89','#35B779','#B4DE2C','#FDE725')
+palette10 <- c('#440154','#482777','#3E4A89','#31688E','#26828E','#1F9E89','#35B779','#6DCD59','#B4DE2C','#FDE725')
+
+```
+
+# Data Preparation
+```{r setting working directory, include=FALSE}
+#Shengqian
+#setwd("/Users/sqwang/Library/CloudStorage/OneDrive-PennO365/penn/6th/Practicum/Data")
+
+#Sam
+#setwd("")
+
+#michael
+#setwd("")
+
+#tiffany
+#setwd("")
+
+#ling
+setwd("/Users/lingchen/Documents/Practicum/Practicum_Philly_2024/Data")
+
+simple_panel <- read.csv("./03_31_panel.csv")
+detail_panel <- read.csv("./detailed_03_31_panel.csv")
+panel <- read.csv("./updated_04_01_panel.csv")
+geo <- read.csv("./geometry.csv")
+try <- read_sf("./finalpanel.geojson")
+add <- read_sf("./add.geojson")
+road_class <- read_sf("./bookings_road_class_nn.geojson")
+```
+
+```{r include=FALSE}
+st_geometry(road_class) <- NULL
+panel <- merge(panel, road_class, by = 'SmartZoneName', all.x = TRUE) %>%
+  select(-Chestnut_St,-Walnut_St,-Sansom_St,-Broad_St,-east_bound,-west_bound,-two_way_north_south,-Bike_Network_dummy)%>%
+  rename(day=Day,Road_Class=CLASS_2)
+
+add <- add %>%
+  rename(bookings=Total_Events)
+  
+st_geometry(add) <- NULL
+
+panel2 <- panel%>%
+  left_join(add,by=c("SmartZoneName","curb_zone_id","week","day","bookings"))
+
+set.seed(123)
+
+train_index_simple <- sample(1:nrow(panel), nrow(panel) * 0.7)
+
+train_set_simple <- panel[train_index_simple, ]
+test_set_simple <- panel[-train_index_simple, ]
+```
+
+# Data Modeling
+Simplified Panel with time, road network, and nearest neighbors variables.
+
+## Hyper Parameters
+mtry=50, ntree = 700, nodesize = 5,maxnodes = 20
+
+```{r include=FALSE}
+trControl <- trainControl(method = "cv",
+    number = 5,
+    search = "grid")
+
+set.seed(2024)
+tuneGrid <- expand.grid(.mtry = seq(30, 70, by = 5))
+
+
+rf_mtry_2 <- train(bookings~.,
+    data = train_set_simple,
+    method = "rf",        # names(getModelInfo())
+    metric = "RMSE", 
+    tuneGrid = tuneGrid,
+    trControl = trControl,
+    importance = TRUE,
+    ntree = 100)
+
+print(rf_mtry_2)
+
+# best mtry=30
+best_mtry_2 <- rf_mtry_2$bestTune$mtry
+
+```
+
+```{r eval=FALSE, include=FALSE}
+# maxnodes
+store_maxnode <- list()
+tuneGrid <- expand.grid(.mtry = best_mtry_2)
+for (maxnodes in c(2: 20)) {
+    set.seed(2024)
+    rf_maxnode <- train(bookings~.,
+        data = train_set_simple,
+        method = "rf",
+        metric = "RMSE",
+        tuneGrid = tuneGrid,
+        trControl = trControl,
+        importance = TRUE,
+        maxnodes = maxnodes,
+        ntree = 300)
+    current_iteration <- toString(maxnodes)
+    store_maxnode[[current_iteration]] <- rf_maxnode
+}
+# best maxnodes=20
+results_maxnode <- resamples(store_maxnode)
+summary(results_maxnode)
+```
+
+```{r eval=FALSE, include=FALSE}
+# nodesize, regression: 5
+store_nodesize <- list()
+tuneGrid <- expand.grid(.mtry = best_mtry_2)
+for (nodesize in c(2: 20)) {
+    set.seed(2024)
+    rf_nodesize <- train(bookings~.,
+        data = train_set_simple,
+        method = "rf",
+        metric = "RMSE",
+        tuneGrid = tuneGrid,
+        trControl = trControl,
+        importance = TRUE,
+        maxnodes = 20,
+        nodesize = nodesize,
+        ntree = 300)
+    current_iteration <- toString(nodesize)
+    store_nodesize[[current_iteration]] <- rf_nodesize
+}
+# best nodesize=20
+results_nodesize <- resamples(store_nodesize)
+summary(results_nodesize)
+```
+
+```{r eval=FALSE, include=FALSE}
+# ntree:500 default
+store_maxtrees <- list()
+for (ntree in c(100, 250, 300, 350, 400, 450, 500, 550, 600, 800, 1000, 2000, 3000)) {
+    set.seed(2024)
+    rf_maxtrees <- train(bookings~.,
+        data = train_set_simple,
+        method = "rf",
+        metric = "RMSE",
+        tuneGrid = tuneGrid,
+        trControl = trControl,
+        importance = TRUE,
+        maxnodes = 20,
+        ntree = ntree)
+    key <- toString(ntree)
+    store_maxtrees[[key]] <- rf_maxtrees
+}
+results_tree <- resamples(store_maxtrees)
+# ？
+summary(results_tree)
+```
+
+## Random Forest Model
+```{r train_test, echo=TRUE}
+train_set_simple<- train_set_simple%>%
+  select(-SmartZoneName,-curb_zone_id,-week,-day,-geometry)
+tuneGrid <- expand.grid(.mtry = best_mtry_2)
+fit_rf_simple <- train(bookings~.,
+    train_set_simple,
+    method = "rf",
+    metric = "RMSE",
+    tuneGrid = tuneGrid,
+    trControl = trControl,
+    importance = TRUE,
+    ntree = 700,
+    nodesize = 5,
+    maxnodes = 20)
+
+varImp(fit_rf_simple)
+
+prediction <-predict(fit_rf_simple, test_set_simple)
+
+```
+
+The chart visualizes the relative importance of the top 20 variables in a predictive model. Notably, the 'Weekend_dummy' variable stands out as the most significant predictor, followed by the distance to class 4 and class 1 roads, indicating their substantial influence on the model's output. Other proximity-related variables such as dining, housing, parking, retail, quick grocery, civic amenities, and schools are also identified as key factors, though to a lesser extent than weekend and road class variables.
+
+```{r echo=TRUE, fig.height=4, fig.width=6}
+top_n <- 20
+
+ImpData <- as.data.frame(varImp(fit_rf_simple)$importance)
+ImpData$Var.Names <- row.names(ImpData)
+
+# Sort by importance, and take the top 'top_n' most important variables
+ImpDataTop <- ImpData %>%
+  top_n(top_n, Overall) %>%
+  arrange(desc(Overall))
+
+# Use the filtered data frame to create a chart
+ggplot(ImpDataTop, aes(x=Var.Names, y=Overall)) +
+  geom_segment(aes(x=Var.Names, xend=Var.Names, y=0, yend=Overall), color="skyblue") +
+  geom_point(aes(y=Overall), color="blue", alpha=0.6) +  # Plot points using the Overall column
+  theme_light() +
+  coord_flip() +  # Display variable names on the y-axis
+  theme(
+    legend.position="none",  # Remove legend
+    panel.grid.major.y = element_blank(),
+    panel.border = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.text.y = element_text(size = 10)  # Adjust font size
+  ) +
+  labs(x = "Variable Name", y = "Importance", title = "Top Variable Importance")
+
+```
+
+```{r}
+# Assuming 'prediction' contains your model's predictions and 'test_set' is your test dataset
+# Add a residuals column to test_set
+test_set_simple <- test_set_simple %>%
+  mutate(
+    Prediction = prediction,
+    Residual = bookings - Prediction,
+    AbsResidual = abs(Residual)
+  )
+#write_csv(test_set_simple,"./testresult.csv")
+```
+
+# Model Generalizability Evaluation
+
+## Examine Error Metrics for Accuracy
+
+The provided chart showcases the performance of a Random Forest model used for predicting bookings on a weekly basis. It indicates that the model tends to underperform particularly in extreme scenarios, such as when bookings are unusually high or low. The model shows a noticeable disparity in predictive accuracy for bookings that exceed an average of 5, often underestimating the actual values. Additionally, there's an observable seasonal trend in bookings, which the model does not seem to fully capture. This limitation is likely due to the model being trained on a dataset limited to the months of October through April, which may not be representative of the entire year. This seasonal effect and the limited data scope could be contributing to the model's reduced effectiveness during peak booking periods in summer.
+
+```{r echo=TRUE, fig.height=6, fig.width=12}
+
+# add a 'year' variable to distinguish between years, then create an 'ordered_week' variable for proper week ordering.
+test_set_simple <- test_set_simple %>%
+  mutate(year = if_else(week >= 42, "2022", "2023")) %>%  # Assign "Year1" or "Year2" based on the week number
+  arrange(year, week) %>%  # Sort by year and week
+  mutate(ordered_week = row_number())  # Assign a unique ordering number for each week
+
+# Now use this 'ordered_week' variable to draw your plot
+test_set_simple %>%
+  select(SmartZoneName, ordered_week, day, bookings, Prediction) %>%
+  gather(Variable, Value, bookings, Prediction) %>%  # Transform data to long format for plotting
+  group_by(Variable, ordered_week, day) %>%
+  summarize(Value = mean(Value, na.rm = TRUE), .groups = 'drop') %>%  # Calculate average value for each group
+  ggplot(aes(x = ordered_week, y = Value, color = Variable, group = Variable)) +  # Plotting
+    geom_line(size = 0.7) + 
+  scale_color_manual(values = c("bookings" = "#440154", "Prediction" = "#35B779")) +
+    scale_x_continuous(breaks = test_set_simple$ordered_week, labels = test_set_simple$week) +  # Custom x-axis breaks and labels
+    labs(title = "Predicted/Observed Bookings", 
+         subtitle = "Random Forest Model by Week", 
+         x = "Week of Year", 
+         y = "Average Bookings") +  # Labels and titles
+    theme_minimal() +  # Minimal theme
+    theme(axis.text.x = element_blank()  # Hide x-axis text
+    )
+    #theme(axis.text.x = element_text(angle = 90, vjust = 0.5))  # Adjust the appearance of x-axis text
+
+```
+
+## Space-Time Error Evaluation
+```{r}
+error_analysis_curb <- test_set_simple %>%
+  group_by(SmartZoneName,CLASS_2) %>%
+  summarise(
+    MeanResidual = mean(Residual, na.rm = TRUE),
+    MeanAbsResidual = mean(AbsResidual, na.rm = TRUE),
+    MSE = mean(Residual^2, na.rm = TRUE),
+    Count = n()
+  ) %>%
+  arrange(desc(MeanAbsResidual))
+```
+
+This map provides a spatial overview of the model’s performance across different streets, where larger circles indicate a higher MAE at that curb, suggesting that the model's predictions are less accurate on Chestnut St, while Walnut St has a better performance.
+
+```{r echo=TRUE, fig.height=4, fig.width=8}
+# Now group by SmartZoneName and summarize the residuals
+
+error_analysis_curb <- test_set_simple %>%
+  group_by(SmartZoneName, Road_Class) %>%
+  summarise(
+    MeanResidual = mean(Residual, na.rm = TRUE),  # 平均误差
+    MAE = mean(AbsResidual, na.rm = TRUE),  # 平均绝对误差（MAE）
+    MSE = mean(Residual^2, na.rm = TRUE),  # 均方误差
+    RMSE = sqrt(MSE),  # 均方根误差
+    Count = n(),  # 计数
+    .groups = "drop"  # 防止之后版本的 dplyr 报错
+  ) %>%
+  arrange(desc(MAE))
+
+# View the error analysis results
+print(error_analysis_curb)
+
+geo <- geo %>%
+  select(SmartZoneName,geometry)%>%
+  distinct(SmartZoneName, geometry)
+
+geo_points <- geo$geometry %>%
+  stringr::str_extract_all("[-]?[0-9]+\\.[0-9]+") %>% # 提取所有数字（包括小数点和负号）
+  purrr::map(~st_point(as.numeric(.x), dim = "XY")) # 将每个提取出来的数值向量转换为POINT对象
+
+geo_sf <- st_as_sf(geo, geometry = do.call("st_sfc", geo_points), crs = 4326) %>% # crs 4326是WGS84坐标系
+  select(-geometry)
+
+error_analysis_curb <- geo_sf %>%
+  left_join(error_analysis_curb, by=c("SmartZoneName"))
+
+# Set tmap mode to view for interactive maps
+tmap_mode("view")
+
+tm <- tm_shape(error_analysis_curb) +
+  tm_bubbles(size = "MAE", col = "MAE", palette = "viridis", scale=5, border.col = "black", 
+             title.size = "MAE", title.col = "MAE") 
+tm
+```
+
+
+From the chart, the high error in conjunction with high data counts suggest a systematic issue with the model especially on Monday, rather than a random fluctuation. As such, there's need to further check the weekly patterns or specific events impacting the model performance. While those low-low points, like Sunday, demonstrate its good performance on weekends.
+
+```{r echo=TRUE, fig.height=4, fig.width=6}
+# Now group by SmartZoneName and summarize the residuals
+error_analysis_day <- test_set_simple %>%
+  group_by(day) %>%
+  summarise(
+    MeanResidual = mean(Residual, na.rm = TRUE),
+    MAE = mean(AbsResidual, na.rm = TRUE),
+    MSE = mean(Residual^2, na.rm = TRUE),
+    Count = n()
+  ) %>%
+  arrange(desc(MAE))
+
+# View the error analysis results
+print(error_analysis_day)
+
+error_analysis_day$day <- factor(error_analysis_day$day, 
+                                 levels = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"), 
+                                 ordered = TRUE)
+
+
+ggplot(error_analysis_day, aes(x = day, y = MAE)) +
+  geom_point(aes(size = Count, color = MAE)) +  
+  scale_color_gradient(low = "#35B779", high = "#440154") +  
+  labs(x = "Day of the Week", 
+       y = "Mean Absolute Error (MAE)", 
+       title = "Daily Mean Absolute Error") +
+  theme_minimal() +
+  theme(legend.position = "bottom") 
+
+```
+
+```{r echo=TRUE, fig.height=2, fig.width=4}
+# Now group by SmartZoneName and summarize the residuals
+error_analysis_weekend <- test_set_simple %>%
+  group_by(Weekend_dummy) %>%
+  summarise(
+    MeanResidual = mean(Residual, na.rm = TRUE),
+    MAE = mean(AbsResidual, na.rm = TRUE),
+    MSE = mean(Residual^2, na.rm = TRUE),
+    Count = n()
+  ) %>%
+  arrange(desc(MAE))
+
+# View the error analysis results
+print(error_analysis_weekend)
+
+ggplot(error_analysis_weekend, aes(x = factor(Weekend_dummy), y = MAE)) +
+  geom_bar(stat = "identity", aes(fill = factor(Weekend_dummy))) +
+  scale_fill_manual(values = c("#35B779", "#440154")) + 
+  labs(x = "Weekend (1) or Not (0)", y = "Mean Absolute Residual", 
+       title = "Mean Absolute Residuals by Weekend or Weekday") +
+  theme_minimal()
+
+```
+
+Overall, the model seems to be more accurate and precise for lower values of bookings and shows some divergence from the observed data at higher booking values. The similarity of the trend lines in both panels suggests the model performs consistently across weekdays and weekends.
+
+```{r echo=TRUE, fig.height=2, fig.width=8}
+ggplot()+
+  geom_point(data = test_set_simple,aes(x= bookings, y = prediction),color = "#35B779")+
+    geom_smooth(data = test_set_simple,aes(x= bookings, y= prediction), method = "lm", se = FALSE, color = '#440154')+
+    geom_abline(slope = 1, intercept = 0)+
+  facet_grid(~Weekend_dummy)+
+  labs(title="Observed vs Predicted",
+       subtitle = 'weekday(0) vs weekend(1) camparison',
+       x="Bookings", 
+       y="Predicted Bookings")+
+  plotTheme()+
+  theme_minimal()
+```
+
+## Cross-validation
+
+The cross-validation chart indicates that for a random forest model subjected to a 50-fold cross-validation process, the Goodness of Fit metrics—MAE, RMSE, and Rsquared—are closely clustered around their respective means. Specifically, the MAE above 1 and RMSE values suggest a consistent average error magnitude across folds. The Rsquared values around 0.5 imply that the model explains about half of the variability in the data. Those tight clustering of these metrics further suggests that the model has stable performance and reasonable generalizability across different data subsets.
+
+```{r cv, echo=TRUE, fig.height=4, fig.width=8}
+fitControl <- trainControl(method = "cv", number = 50)
+set.seed(825)
+
+rf.cv <- train(bookings ~ ., data = train_set_simple, 
+               method = "rf",
+               trControl = fitControl,
+               tuneGrid = expand.grid(.mtry = best_mtry_2),
+               importance = TRUE,
+               ntree = 700,
+               nodesize = 5,
+               maxnodes = 20)
+
+rf.cv
+
+dplyr::select(rf.cv$resample, -Resample) %>%
+  gather(metric, value) %>%
+  left_join(gather(rf.cv$results[2:4], metric, mean)) %>%
+  ggplot(aes(value)) + 
+    geom_histogram(bins=35, fill = "#2a9d8f") +
+    facet_wrap(~metric) +
+    geom_vline(aes(xintercept = mean), colour = "#e76f51", linetype = 3, size = 1.5) +
+    scale_x_continuous(limits = c(0, 2)) +
+    labs(x="Goodness of Fit", y="Count", title="CV Goodness of Fit Metrics",
+         subtitle = "50 folds, Across-fold mean reprented as dotted lines") +
+    plotTheme()
+
+```
+
+# Prediction on all curbs
+
+```{r}
+all_curbs <- read_sf("./all_curbs_0415.geojson")
+all_curbs_nn <- read_sf("./all_curbs_nn.geojson")
+
+all_curbs_weekday <- all_curbs %>%
+  select(-TARGET_FID,-end_st_.x,-strt_s_.x,-strt_nm.x,-OID_,-Join_Count,-categry,-curb_id,-currncy,-dstnc_n_,-dstnc_s_,-end_st_.y,-mx_drt_,-price,-rgltn_t,-sd_f_st,-smrt_z_,-strt_s_.y,-strt_nm.y,-time_zn,-vhcl_ty,-Shape_Length,-geometry) %>%
+  mutate(Weekend_dummy=0) 
+
+all_curbs_weekend <- all_curbs %>%
+  select(-TARGET_FID,-end_st_.x,-strt_s_.x,-strt_nm.x,-OID_,-Join_Count,-categry,-curb_id,-currncy,-dstnc_n_,-dstnc_s_,-end_st_.y,-mx_drt_,-price,-rgltn_t,-sd_f_st,-smrt_z_,-strt_s_.y,-strt_nm.y,-time_zn,-vhcl_ty,-Shape_Length,-geometry) %>%
+  mutate(Weekend_dummy=1)
+
+allPredictions_weekday <- 
+  predict(fit_rf_simple, all_curbs_weekday)
+  
+all_curbs_weekday <- 
+  cbind(all_curbs_weekday, allPredictions_weekday)
+
+allPredictions_weekend <- 
+  predict(fit_rf_simple, all_curbs_weekend)
+allPredictions_weekend <- 
+  predict(fit_rf_simple, all_curbs_weekend)
+all_curbs_weekend <- 
+  cbind(all_curbs_weekend, allPredictions_weekend)
+```
+
+```{r}
+ggplot() + 
+  geom_sf(data = all_curbs_weekday, 
+          aes(fill = allPredictions_weekday), 
+          color = "#e76f51") +
+  scale_fill_gradientn(colors = c("#F7FBFF", "#bcc47a"),
+                       name = "Predicted Bookings") +
+  labs(title = "Curb Demand Prediction in Piladelphia, PA") +
+  theme_minimal()
+```
