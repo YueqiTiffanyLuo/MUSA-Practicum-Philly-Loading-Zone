@@ -1287,7 +1287,7 @@ final_panel <- final_combined %>%
   left_join(test_selected, by = "SmartZoneName")
 ```
 
-## weather panel(?)
+## weather panel(do we still need it?)
 ```{r import_weather, message = FALSE, warning = FALSE }
 
 weather.Panel <- 
@@ -1754,19 +1754,11 @@ all_curbs <- all_curbs %>%
   select(-TARGET_FID,-end_st_.x,-strt_s_.x,-strt_nm.x,-OID_,-Join_Count,-categry,-curb_id,-currncy,-dstnc_n_,-dstnc_s_,-end_st_.y,-mx_drt_,-price,-rgltn_t,-sd_f_st,-smrt_z_,-strt_s_.y,-strt_nm.y,-time_zn,-vhcl_ty,-Shape_Length,-geometry) %>%
   rename(Road_class= Road_Class)
 
+# should define a specific week, day, hour to see the predictions.
 allPredictions <- 
   predict(fit_rf_simple, all_curbs)
   
 ```
 
-```{r}
-ggplot() + 
-  geom_sf(data = all_curbs_weekday, 
-          aes(fill = allPredictions_weekday), 
-          color = "#e76f51") +
-  scale_fill_gradientn(colors = c("#F7FBFF", "#bcc47a"),
-                       name = "Predicted Bookings") +
-  labs(title = "Curb Demand Prediction in Piladelphia, PA") +
-  theme_minimal()
-```
+
 
