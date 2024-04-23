@@ -1762,6 +1762,11 @@ all_curbs <- all_curbs %>%
   select(-TARGET_FID,-end_st_.x,-strt_s_.x,-strt_nm.x,-OID_,-Join_Count,-categry,-curb_id,-currncy,-dstnc_n_,-dstnc_s_,-end_st_.y,-mx_drt_,-price,-rgltn_t,-sd_f_st,-smrt_z_,-strt_s_.y,-strt_nm.y,-time_zn,-vhcl_ty,-Shape_Length,-geometry) %>%
   rename(Road_class= Road_Class)
 
+all_curbs <- all_curbs %>%
+  mutate(Week=50,
+         day_of_week="Fri",
+         hour_of_day=6)
+
 # should define a specific week, day, hour to see the predictions.
 allPredictions <- 
   predict(fit_rf_simple, all_curbs)
