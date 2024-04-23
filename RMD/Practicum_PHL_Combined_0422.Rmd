@@ -16,7 +16,8 @@ knitr::opts_chunk$set(echo = TRUE,warning = FALSE, message = FALSE)
 
 # 1 Introduction
 
-Sam
+The City of Philadelphia’s Smart Cities Director (of the City’s Innovation Management Team and Office of Information Technology) (“the client”) wishes to create a proof-of-concept data framework for siting new curbside loading zones for commercial vehicles. The increase in home delivery and on-demand logistics has created a need for new tools to decongest the right-of-way. In 2022-23, Philadelphia piloted a “Smart Loading Zone” program in select locations. This was an app-based, sensor-monitored reservation system. The pilot generated data about individual vehicles parking in each zone. What will happen if we want to site new loading zones elsewhere in the city? How can an official make an argument for taking away curb parking at a particular location? Your job is to use pilot data to create accurate models that can be used to estimate demand at new locations.
+
 
 
 # 2 Data Manipulation and Visualization
