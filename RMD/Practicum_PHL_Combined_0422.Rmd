@@ -1392,7 +1392,7 @@ test_set_simple <- panel[-train_index_simple, ]
 Simplified Panel with time, road network, and nearest neighbors variables.
 
 ### Hyper Parameters
-mtry=5, ntree = 700, nodesize = 5,maxnodes = 20
+mtry=5, ntree = 3000, nodesize = 500,maxnodes = 20
 
 ```{r include=FALSE}
 trControl <- trainControl(method = "cv",
@@ -1413,7 +1413,7 @@ rf_mtry <- train(Events~.,
 
 print(rf_mtry)
 
-# best mtry=30
+# best mtry=5
 best_mtry <- rf_mtry$bestTune$mtry
 
 ```
@@ -1509,7 +1509,7 @@ prediction <-predict(fit_rf_simple, test_set_simple)
 
 ```
 
-The chart visualizes the relative importance of the top 20 variables in a predictive model. Notably, the 'Weekend_dummy' variable stands out as the most significant predictor, followed by the distance to class 4 and class 1 roads, indicating their substantial influence on the model's output. Other proximity-related variables such as dining, housing, parking, retail, quick grocery, civic amenities, and schools are also identified as key factors, though to a lesser extent than weekend and road class variables.
+The chart visualizes the relative importance of the top 20 variables in a predictive model. Notably, the 'distance to classes 1,4,5 roads' variables stand out as the most significant predictors, followed by the nearest healthcare facilities, indicating their substantial influence on the model's output. Other proximity-related variables such as civic,retail, dining, school, quick grocery, housing, and schools are also identified as key factors.
 
 ```{r echo=TRUE, fig.height=4, fig.width=6}
 top_n <- 20
@@ -1550,14 +1550,14 @@ test_set_simple <- test_set_simple %>%
     Residual = Events - Prediction,
     AbsResidual = abs(Residual)
   )
-write_csv(test_set_simple,"./testresult_0420.csv")
+#write_csv(test_set_simple,"./testresult_0420.csv")
 ```
 
 ## Model Generalizability Evaluation
 
 ### Examine Error Metrics for Accuracy
 
-The provided chart showcases the performance of a Random Forest model used for predicting bookings on a weekly basis. It indicates that the model tends to underperform particularly in extreme scenarios, such as when bookings are unusually high or low. The model shows a noticeable disparity in predictive accuracy for bookings that exceed an average of 5, often underestimating the actual values. Additionally, there's an observable seasonal trend in bookings, which the model does not seem to fully capture. This limitation is likely due to the model being trained on a dataset limited to the months of October through April, which may not be representative of the entire year. This seasonal effect and the limited data scope could be contributing to the model's reduced effectiveness during peak booking periods in summer.
+The provided chart showcases the performance of a Random Forest model used for predicting bookings on a weekly basis. It indicates that the model tends to underperform particularly in extreme scenarios, such as when bookings are unusually high or low. The model shows a noticeable disparity in predictive accuracy for bookings that exceed an average of 1.25, often underestimating the actual values. Additionally, there's an observable seasonal trend in bookings, which the model does not seem to fully capture. This limitation is likely due to the model being trained on a dataset limited to the months of October through April, which may not be representative of the entire year. This seasonal effect and the limited data scope could be contributing to the model's reduced effectiveness during peak booking periods in summer.
 
 ```{r echo=TRUE, fig.height=6, fig.width=12}
 
@@ -1601,7 +1601,7 @@ error_analysis_curb <- test_set_simple %>%
   arrange(desc(MeanAbsResidual))
 ```
 
-This map provides a spatial overview of the model’s performance across different streets, where larger circles indicate a higher MAE at that curb, suggesting that the model's predictions are less accurate on Chestnut St, while Walnut St has a better performance.
+This map provides a spatial overview of the model’s performance across different streets, where larger circles indicate a higher MAE at that curb, suggesting that the model's predictions are less accurate on Chestnut St, while Walnut St has a better performance, except for the one near broad street.
 
 ```{r echo=TRUE, fig.height=4, fig.width=8}
 # Now group by SmartZoneName and summarize the residuals
@@ -1644,8 +1644,7 @@ tm <- tm_shape(error_analysis_curb) +
 tm
 ```
 
-
-From the chart, the high error in conjunction with high data counts suggest a systematic issue with the model especially on Monday, rather than a random fluctuation. As such, there's need to further check the weekly patterns or specific events impacting the model performance. While those low-low points, like Sunday, demonstrate its good performance on weekends.
+From the chart, the high error in conjunction with high data counts suggest a systematic issue with the model especially on Wednesday, rather than a random fluctuation. As such, there's need to further check the weekly patterns or specific events impacting the model performance. While those low-low points, like Monday and Friday, demonstrate its good performance.
 
 ```{r echo=TRUE, fig.height=4, fig.width=6}
 # Now group by SmartZoneName and summarize the residuals
@@ -1677,6 +1676,8 @@ ggplot(error_analysis_day, aes(x = day_of_week, y = MAE)) +
   theme(legend.position = "bottom") 
 
 ```
+
+The prediction performance is more accurate during the early morning from 6-8 AM, whereas it tends to have higher errors from 8-10 AM.
 
 ```{r echo=TRUE, fig.height=2, fig.width=4}
 # Now group by SmartZoneName and summarize the residuals
@@ -1720,7 +1721,7 @@ ggplot()+
 
 ### Cross-validation
 
-The cross-validation chart indicates that for a random forest model subjected to a 50-fold cross-validation process, the Goodness of Fit metrics—MAE, RMSE, and Rsquared—are closely clustered around their respective means. Specifically, the MAE above 1 and RMSE values suggest a consistent average error magnitude across folds. The Rsquared values around 0.5 imply that the model explains about half of the variability in the data. Those tight clustering of these metrics further suggests that the model has stable performance and reasonable generalizability across different data subsets.
+The cross-validation chart indicates that for a random forest model subjected to a 50-fold cross-validation process, the Goodness of Fit metrics—MAE, RMSE, and Rsquared—are closely clustered around their respective means. Specifically, the MAE around 0.25 and RMSE values suggest a consistent average error magnitude across folds. The Rsquared values around 0.08 imply that the model explains about half of the variability in the data. Those tight clustering of these metrics further suggests that the model has stable performance and reasonable generalizability across different data subsets.
 
 ```{r cv, echo=TRUE, fig.height=4, fig.width=8}
 fitControl <- trainControl(method = "cv", number = 50)
