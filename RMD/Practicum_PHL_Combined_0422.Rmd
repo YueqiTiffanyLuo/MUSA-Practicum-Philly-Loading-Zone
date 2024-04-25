@@ -74,6 +74,7 @@ library(riem)
 library(readr)
 library(tidymodels)
 library(randomForest)
+library(vip)
 
 #library(rjson)
 
@@ -1369,9 +1370,6 @@ ggcorrplot(
 
 ## Data Preparation
 ```{r setting working directory, include=FALSE}
-simple_panel <- read.csv("./03_31_panel.csv")
-detail_panel <- read.csv("./detailed_03_31_panel.csv")
-old_panel <- read.csv("./updated_04_01_panel.csv")
 panel <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/04_23_reduced_panel.geojson")
 geo <- read.csv("./geometry.csv")
 try <- read_sf("./finalpanel.geojson")
@@ -1394,7 +1392,7 @@ test_set_simple <- panel[-train_index_simple, ]
 Simplified Panel with time, road network, and nearest neighbors variables.
 
 ### Hyper Parameters
-mtry=5, ntree = 3000, nodesize = 500,maxnodes = 20
+mtry=30, ntree = 1000, nodesize = 10,maxnodes = 20
 
 ```{r include=FALSE}
 
@@ -1415,14 +1413,13 @@ rf_recipe <- recipe(Events ~ ., data = train_set_simple)
 
 # 创建调优网格
 tune_grid <- grid_regular(
-  mtry(c(20, 45)),
-  min_n(c(50, 60)),
+  mtry(c(5, 30)),
+  min_n(c(10, 60)),
   levels = 5
 )
 
-
 # 设置交叉验证的训练控制
-cv_folds <- vfold_cv(train_set_simple, v = 5)
+cv_folds <- vfold_cv(train_set_simple, v = 10)
 
 # 组合工作流
 rf_workflow <- workflow() %>%
@@ -1438,18 +1435,45 @@ rf_results <- tune_grid(
 )
 
 # 查看最佳参数
-best_params <- select_best(rf_results, "rmse")
+best_params <- select_best(rf_results, metric = "rmse")
 
-# 用最佳参数训练最终模型
-final_rf_model <- finalize_workflow(
+```
+
+```{r}
+# Finalize the workflow with the best parameters
+final_rf_workflow <- finalize_workflow(
   rf_workflow,
   best_params
-) %>%
-  last_fit(train_set_simple)
+)
 
-# 预测测试集
-predictions <- predict(final_rf_model, test_set_simple)
+# Fit the final model on the entire training set
+final_rf_fit <- fit(final_rf_workflow, data = train_set_simple)
 
+# Predict the test set
+predictions <- predict(final_rf_fit, test_set_simple)
+
+# Optionally, you can examine the predictions
+summary(predictions)
+```
+
+```{r echo=TRUE, fig.height=4, fig.width=6}
+
+top_n <- 20
+vi <- vip(final_rf_fit, num_features = top_n, geom = "point")
+print(vi)
+
+```
+
+```{r}
+# Assuming 'prediction' contains your model's predictions and 'test_set' is your test dataset
+# Add a residuals column to test_set
+test_set_simple <- test_set_simple %>%
+  mutate(
+    Prediction = predictions$.pred,
+    Residual = Events - Prediction,
+    AbsResidual = abs(Residual)
+  )
+#write_csv(test_set_simple,"./testresult_0420.csv")
 ```
 
 ### Random Forest Model
@@ -1700,10 +1724,10 @@ set.seed(825)
 rf.cv <- train(Events ~ ., data = train_set_simple, 
                method = "rf",
                trControl = fitControl,
-               tuneGrid = expand.grid(.mtry = 45),
+               tuneGrid = expand.grid(.mtry = 30),
                importance = TRUE,
                ntree = 1000,
-               nodesize = 5,
+               nodesize = 10,
                maxnodes = 20)
 
 rf.cv
@@ -1745,7 +1769,7 @@ for(day in c("Mon","Tue","Wed","Thu","Fri")) {
                hour = hour)
       
       # Make predictions with the model
-      temp_predictions <- predict(fit_rf_simple, temp_data)
+      temp_predictions <- predict(final_rf_fit, temp_data)
       
       # Add the predictions as a new column
       temp_data <- temp_data %>%
@@ -1756,6 +1780,11 @@ for(day in c("Mon","Tue","Wed","Thu","Fri")) {
     }
   }
 
+all_predictions <- all_predictions %>%
+  unnest(Prediction) %>%
+  rename(Prediction=.pred)
+
+write_csv(all_predictions,"./allcurbs_prediction_0425.csv")
 ```
 
 
