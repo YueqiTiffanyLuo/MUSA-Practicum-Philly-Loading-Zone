@@ -72,6 +72,9 @@ library(tidyr)
 library(reshape2)
 library(riem)
 library(readr)
+library(tidymodels)
+library(randomForest)
+library(vip)
 
 #library(rjson)
 
@@ -1367,10 +1370,7 @@ ggcorrplot(
 
 ## Data Preparation
 ```{r setting working directory, include=FALSE}
-simple_panel <- read.csv("./03_31_panel.csv")
-detail_panel <- read.csv("./detailed_03_31_panel.csv")
-old_panel <- read.csv("./updated_04_01_panel.csv")
-panel <- read_sf("./morning_only_panel.geojson")
+panel <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/04_23_reduced_panel.geojson")
 geo <- read.csv("./geometry.csv")
 try <- read_sf("./finalpanel.geojson")
 add <- read_sf("./add.geojson")
@@ -1392,106 +1392,99 @@ test_set_simple <- panel[-train_index_simple, ]
 Simplified Panel with time, road network, and nearest neighbors variables.
 
 ### Hyper Parameters
-mtry=5, ntree = 700, nodesize = 5,maxnodes = 20
+mtry=30, ntree = 1000, nodesize = 10,maxnodes = 20
 
 ```{r include=FALSE}
-trControl <- trainControl(method = "cv",
-    number = 5,
-    search = "grid")
 
-set.seed(2024)
-tuneGrid <- expand.grid(mtry = c(5,10,20,30,45))
+train_set_simple <- train_set_simple %>%
+  select(-SmartZoneName)  
 
-rf_mtry <- train(Events~.,
-    data = train_set_simple,
-    method = "rf",        # names(getModelInfo())
-    metric = "RMSE", 
-    tuneGrid = tuneGrid,
-    trControl = trControl,
-    importance = TRUE,
-    ntree = 100)
+# 定义随机森林模型规范
+rf_spec <- rand_forest(
+  mtry = tune(), 
+  trees = 1000,
+  min_n = tune()  # 对应于nodesize
+) %>%
+  set_mode("regression") %>%
+  set_engine("randomForest")
 
-print(rf_mtry)
+# 定义数据预处理
+rf_recipe <- recipe(Events ~ ., data = train_set_simple)
 
-# best mtry=30
-best_mtry <- rf_mtry$bestTune$mtry
+# 创建调优网格
+tune_grid <- grid_regular(
+  mtry(c(5, 30)),
+  min_n(c(10, 60)),
+  levels = 5
+)
+
+# 设置交叉验证的训练控制
+cv_folds <- vfold_cv(train_set_simple, v = 10)
+
+# 组合工作流
+rf_workflow <- workflow() %>%
+  add_recipe(rf_recipe) %>%
+  add_model(rf_spec)
+
+# 调整模型
+rf_results <- tune_grid(
+  rf_workflow,
+  resamples = cv_folds,
+  grid = tune_grid,
+  metrics = metric_set(rmse)
+)
+
+# 查看最佳参数
+best_params <- select_best(rf_results, metric = "rmse")
 
 ```
 
-```{r eval=FALSE, include=FALSE}
-# maxnodes
-store_maxnode <- list()
-tuneGrid <- expand.grid(.mtry = best_mtry)
-for (maxnodes in c(2: 20)) {
-    set.seed(2024)
-    rf_maxnode <- train(Events~.,
-        data = train_set_simple,
-        method = "rf",
-        metric = "RMSE",
-        tuneGrid = tuneGrid,
-        trControl = trControl,
-        importance = TRUE,
-        maxnodes = maxnodes,
-        ntree = 300)
-    current_iteration <- toString(maxnodes)
-    store_maxnode[[current_iteration]] <- rf_maxnode
-}
-# best maxnodes=20
-results_maxnode <- resamples(store_maxnode)
-summary(results_maxnode)
+```{r}
+# Finalize the workflow with the best parameters
+final_rf_workflow <- finalize_workflow(
+  rf_workflow,
+  best_params
+)
+
+# Fit the final model on the entire training set
+final_rf_fit <- fit(final_rf_workflow, data = train_set_simple)
+
+# Predict the test set
+predictions <- predict(final_rf_fit, test_set_simple)
+
+# Optionally, you can examine the predictions
+summary(predictions)
 ```
 
-```{r eval=FALSE, include=FALSE}
-# nodesize:500
-store_nodesize <- list()
-tuneGrid <- expand.grid(.mtry = best_mtry)
-for (nodesize in c(50,100,200,500)) {
-    set.seed(2024)
-    rf_nodesize <- train(Events~.,
-        data = train_set_simple,
-        method = "rf",
-        metric = "RMSE",
-        tuneGrid = tuneGrid,
-        trControl = trControl,
-        importance = TRUE,
-        maxnodes = 20,
-        nodesize = nodesize,
-        ntree = 300)
-    current_iteration <- toString(nodesize)
-    store_nodesize[[current_iteration]] <- rf_nodesize
-}
-# best nodesize=20
-results_nodesize <- resamples(store_nodesize)
-summary(results_nodesize)
+```{r echo=TRUE, fig.height=4, fig.width=6}
+
+top_n <- 20
+vi <- vip(final_rf_fit, num_features = top_n, geom = "point")
+print(vi)
+
 ```
 
-```{r eval=FALSE, include=FALSE}
-# ntree:3000
-store_maxtrees <- list()
-for (ntree in c(1000, 2000, 3000)) {
-    set.seed(2024)
-    rf_maxtrees <- train(Events~.,
-        data = train_set_simple,
-        method = "rf",
-        metric = "RMSE",
-        tuneGrid = tuneGrid,
-        trControl = trControl,
-        importance = TRUE,
-        maxnodes = 20,
-        ntree = ntree)
-    key <- toString(ntree)
-    store_maxtrees[[key]] <- rf_maxtrees
-}
-results_tree <- resamples(store_maxtrees)
-# ？
-summary(results_tree)
+```{r}
+# Assuming 'prediction' contains your model's predictions and 'test_set' is your test dataset
+# Add a residuals column to test_set
+test_set_simple <- test_set_simple %>%
+  mutate(
+    Prediction = predictions$.pred,
+    Residual = Events - Prediction,
+    AbsResidual = abs(Residual)
+  )
+#write_csv(test_set_simple,"./testresult_0420.csv")
 ```
 
 ### Random Forest Model
 ```{r train_test, echo=TRUE}
 train_set_simple<- train_set_simple%>%
   select(-SmartZoneName)
-tuneGrid <- expand.grid(.mtry = 5)
+tuneGrid <- expand.grid(mtry = c(10,20,45))
+trControl <- trainControl(method = "cv",
+    number = 5,
+    search = "grid")
+
 fit_rf_simple <- train(Events~.,
     train_set_simple,
     method = "rf",
@@ -1499,8 +1492,8 @@ fit_rf_simple <- train(Events~.,
     tuneGrid = tuneGrid,
     trControl = trControl,
     importance = TRUE,
-    ntree = 3000,
-    nodesize = 500,
+    nodesize=5,
+    ntree = 1000,
     maxnodes = 20)
 
 varImp(fit_rf_simple)
@@ -1509,7 +1502,8 @@ prediction <-predict(fit_rf_simple, test_set_simple)
 
 ```
 
-The chart visualizes the relative importance of the top 20 variables in a predictive model. Notably, the 'Weekend_dummy' variable stands out as the most significant predictor, followed by the distance to class 4 and class 1 roads, indicating their substantial influence on the model's output. Other proximity-related variables such as dining, housing, parking, retail, quick grocery, civic amenities, and schools are also identified as key factors, though to a lesser extent than weekend and road class variables.
+
+The chart visualizes the relative importance of the top 20 variables in a predictive model. Notably, the 'distance to classes 1,4,5 roads' variables stand out as the most significant predictors, followed by the nearest healthcare facilities, indicating their substantial influence on the model's output. Other proximity-related variables such as civic,retail, dining, school, quick grocery, housing, and schools are also identified as key factors.
 
 ```{r echo=TRUE, fig.height=4, fig.width=6}
 top_n <- 20
@@ -1550,33 +1544,33 @@ test_set_simple <- test_set_simple %>%
     Residual = Events - Prediction,
     AbsResidual = abs(Residual)
   )
-write_csv(test_set_simple,"./testresult_0420.csv")
+#write_csv(test_set_simple,"./testresult_0420.csv")
 ```
 
 ## Model Generalizability Evaluation
 
 ### Examine Error Metrics for Accuracy
 
-The provided chart showcases the performance of a Random Forest model used for predicting bookings on a weekly basis. It indicates that the model tends to underperform particularly in extreme scenarios, such as when bookings are unusually high or low. The model shows a noticeable disparity in predictive accuracy for bookings that exceed an average of 5, often underestimating the actual values. Additionally, there's an observable seasonal trend in bookings, which the model does not seem to fully capture. This limitation is likely due to the model being trained on a dataset limited to the months of October through April, which may not be representative of the entire year. This seasonal effect and the limited data scope could be contributing to the model's reduced effectiveness during peak booking periods in summer.
+The provided chart showcases the performance of a Random Forest model used for predicting bookings on a weekly basis. It indicates that the model tends to underperform particularly in extreme scenarios, such as when bookings are unusually high or low. The model shows a noticeable disparity in predictive accuracy for bookings that exceed an average of 1.25, often underestimating the actual values. Additionally, there's an observable seasonal trend in bookings, which the model does not seem to fully capture. This limitation is likely due to the model being trained on a dataset limited to the months of October through April, which may not be representative of the entire year. This seasonal effect and the limited data scope could be contributing to the model's reduced effectiveness during peak booking periods in summer.
 
 ```{r echo=TRUE, fig.height=6, fig.width=12}
 
 # add a 'year' variable to distinguish between years, then create an 'ordered_week' variable for proper week ordering.
 test_set_simple <- test_set_simple %>%
-  mutate(year = if_else(Week >= 42, "2022", "2023")) %>%  # Assign "Year1" or "Year2" based on the week number
-  arrange(year, Week) %>%  # Sort by year and week
+  mutate(year = if_else(week >= 42, "2022", "2023")) %>%  # Assign "Year1" or "Year2" based on the week number
+  arrange(year, week) %>%  # Sort by year and week
   mutate(ordered_week = row_number())  # Assign a unique ordering number for each week
 
 # Now use this 'ordered_week' variable to draw your plot
 test_set_simple %>%
-  select(SmartZoneName, ordered_week, day_of_week, Events, Prediction) %>%
+  select(SmartZoneName, ordered_week, day, Events, Prediction) %>%
   gather(Variable, Value, Events, Prediction) %>%  # Transform data to long format for plotting
-  group_by(Variable, ordered_week, day_of_week) %>%
+  group_by(Variable, ordered_week, day) %>%
   summarize(Value = mean(Value, na.rm = TRUE), .groups = 'drop') %>%  # Calculate average value for each group
   ggplot(aes(x = ordered_week, y = Value, color = Variable, group = Variable)) +  # Plotting
     geom_line(size = 0.7) + 
   scale_color_manual(values = c("bookings" = "#440154", "Prediction" = "#35B779")) +
-    scale_x_continuous(breaks = test_set_simple$ordered_week, labels = test_set_simple$Week) +  # Custom x-axis breaks and labels
+    scale_x_continuous(breaks = test_set_simple$ordered_week, labels = test_set_simple$week) +  # Custom x-axis breaks and labels
     labs(title = "Predicted/Observed Bookings", 
          subtitle = "Random Forest Model by Week", 
          x = "Week of Year", 
@@ -1601,7 +1595,7 @@ error_analysis_curb <- test_set_simple %>%
   arrange(desc(MeanAbsResidual))
 ```
 
-This map provides a spatial overview of the model’s performance across different streets, where larger circles indicate a higher MAE at that curb, suggesting that the model's predictions are less accurate on Chestnut St, while Walnut St has a better performance.
+This map provides a spatial overview of the model’s performance across different streets, where larger circles indicate a higher MAE at that curb, suggesting that the model's predictions are less accurate on Chestnut St, while Walnut St has a better performance, except for the one near broad street.
 
 ```{r echo=TRUE, fig.height=4, fig.width=8}
 # Now group by SmartZoneName and summarize the residuals
@@ -1644,13 +1638,12 @@ tm <- tm_shape(error_analysis_curb) +
 tm
 ```
 
-
-From the chart, the high error in conjunction with high data counts suggest a systematic issue with the model especially on Monday, rather than a random fluctuation. As such, there's need to further check the weekly patterns or specific events impacting the model performance. While those low-low points, like Sunday, demonstrate its good performance on weekends.
+From the chart, the high error in conjunction with high data counts suggest a systematic issue with the model especially on Wednesday, rather than a random fluctuation. As such, there's need to further check the weekly patterns or specific events impacting the model performance. While those low-low points, like Monday and Friday, demonstrate its good performance.
 
 ```{r echo=TRUE, fig.height=4, fig.width=6}
 # Now group by SmartZoneName and summarize the residuals
 error_analysis_day <- test_set_simple %>%
-  group_by(day_of_week) %>%
+  group_by(day) %>%
   summarise(
     MeanResidual = mean(Residual, na.rm = TRUE),
     MAE = mean(AbsResidual, na.rm = TRUE),
@@ -1662,12 +1655,12 @@ error_analysis_day <- test_set_simple %>%
 # View the error analysis results
 print(error_analysis_day)
 
-error_analysis_day$day_of_week <- factor(error_analysis_day$day_of_week, 
-                                 levels = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"), 
+error_analysis_day$day_of_week <- factor(error_analysis_day$day, 
+                                 levels = c("Mon", "Tue", "Wed", "Thu", "Fri"), 
                                  ordered = TRUE)
 
 
-ggplot(error_analysis_day, aes(x = day_of_week, y = MAE)) +
+ggplot(error_analysis_day, aes(x = day, y = MAE)) +
   geom_point(aes(size = Count, color = MAE)) +  
   scale_color_gradient(low = "#35B779", high = "#440154") +  
   labs(x = "Day of the Week", 
@@ -1678,10 +1671,12 @@ ggplot(error_analysis_day, aes(x = day_of_week, y = MAE)) +
 
 ```
 
+The prediction performance is more accurate during the early morning from 6-8 AM, whereas it tends to have higher errors from 8-10 AM.
+
 ```{r echo=TRUE, fig.height=2, fig.width=4}
 # Now group by SmartZoneName and summarize the residuals
 error_analysis_day <- test_set_simple %>%
-  group_by(hour_of_day) %>%
+  group_by(hour) %>%
   summarise(
     MeanResidual = mean(Residual, na.rm = TRUE),
     MAE = mean(AbsResidual, na.rm = TRUE),
@@ -1693,8 +1688,8 @@ error_analysis_day <- test_set_simple %>%
 # View the error analysis results
 print(error_analysis_day)
 
-ggplot(error_analysis_day, aes(x = factor(hour_of_day), y = MAE)) +
-  geom_bar(stat = "identity", aes(fill = factor(hour_of_day))) +
+ggplot(error_analysis_day, aes(x = factor(hour), y = MAE)) +
+  geom_bar(stat = "identity", aes(fill = factor(hour))) +
   scale_fill_manual(values = palette5) + 
   labs(x = "Hour of the Day", y = "Mean Absolute Residual", 
        title = "Mean Absolute Residuals by Hour of the Day") +
@@ -1709,7 +1704,7 @@ ggplot()+
   geom_point(data = test_set_simple,aes(x= Events, y = prediction),color = "#35B779")+
     geom_smooth(data = test_set_simple,aes(x= Events, y= prediction), method = "lm", se = FALSE, color = '#440154')+
     geom_abline(slope = 1, intercept = 0)+
-  facet_grid(~hour_of_day)+
+  facet_grid(~hour)+
   labs(title="Observed vs Predicted",
        subtitle = 'hour of day camparison',
        x="Bookings", 
@@ -1720,7 +1715,7 @@ ggplot()+
 
 ### Cross-validation
 
-The cross-validation chart indicates that for a random forest model subjected to a 50-fold cross-validation process, the Goodness of Fit metrics—MAE, RMSE, and Rsquared—are closely clustered around their respective means. Specifically, the MAE above 1 and RMSE values suggest a consistent average error magnitude across folds. The Rsquared values around 0.5 imply that the model explains about half of the variability in the data. Those tight clustering of these metrics further suggests that the model has stable performance and reasonable generalizability across different data subsets.
+The cross-validation chart indicates that for a random forest model subjected to a 50-fold cross-validation process, the Goodness of Fit metrics—MAE, RMSE, and Rsquared—are closely clustered around their respective means. Specifically, the MAE around 0.25 and RMSE values suggest a consistent average error magnitude across folds. The Rsquared values around 0.08 imply that the model explains about half of the variability in the data. Those tight clustering of these metrics further suggests that the model has stable performance and reasonable generalizability across different data subsets.
 
 ```{r cv, echo=TRUE, fig.height=4, fig.width=8}
 fitControl <- trainControl(method = "cv", number = 50)
@@ -1729,10 +1724,10 @@ set.seed(825)
 rf.cv <- train(Events ~ ., data = train_set_simple, 
                method = "rf",
                trControl = fitControl,
-               tuneGrid = expand.grid(.mtry = 5),
+               tuneGrid = expand.grid(.mtry = 30),
                importance = TRUE,
-               ntree = 3000,
-               nodesize = 500,
+               ntree = 1000,
+               nodesize = 10,
                maxnodes = 20)
 
 rf.cv
@@ -1744,7 +1739,7 @@ dplyr::select(rf.cv$resample, -Resample) %>%
     geom_histogram(bins=35, fill = "#2a9d8f") +
     facet_wrap(~metric) +
     geom_vline(aes(xintercept = mean), colour = "#e76f51", linetype = 3, size = 1.5) +
-    scale_x_continuous(limits = c(0, 1.5)) +
+    scale_x_continuous(limits = c(0, 1)) +
     labs(x="Goodness of Fit", y="Count", title="CV Goodness of Fit Metrics",
          subtitle = "50 folds, Across-fold mean reprented as dotted lines") +
     plotTheme()
@@ -1754,18 +1749,42 @@ dplyr::select(rf.cv$resample, -Resample) %>%
 # 5 Prediction on all curbs
 
 ```{r}
+
 all_curbs <- read_sf("./all_curbs_0415.geojson")
-all_curbs_nn <- read_sf("./all_curbs_nn.geojson")
 
 all_curbs <- all_curbs %>%
-  select(-TARGET_FID,-end_st_.x,-strt_s_.x,-strt_nm.x,-OID_,-Join_Count,-categry,-curb_id,-currncy,-dstnc_n_,-dstnc_s_,-end_st_.y,-mx_drt_,-price,-rgltn_t,-sd_f_st,-smrt_z_,-strt_s_.y,-strt_nm.y,-time_zn,-vhcl_ty,-Shape_Length,-geometry) %>%
-  rename(Road_class= Road_Class)
+  select(-TARGET_FID, -end_st_.x, -strt_s_.x, -strt_nm.x, -OID_, -Join_Count, -categry, -curb_id, -currncy, -dstnc_n_, -dstnc_s_, -end_st_.y, -mx_drt_, -price, -rgltn_t, -sd_f_st, -smrt_z_, -strt_s_.y, -strt_nm.y, -time_zn, -vhcl_ty, -Shape_Length, -geometry) %>%
+  rename(Road_class = Road_Class)
 
-# should define a specific week, day, hour to see the predictions.
-allPredictions <- 
-  predict(fit_rf_simple, all_curbs)
-  
+# Create a data frame to bind all predictions
+all_predictions <- data.frame()
+
+# Set up the nested loop
+for(day in c("Mon","Tue","Wed","Thu","Fri")) {
+    for(hour in 6:9) {
+      
+      # Mutate the data to have the current week, day, and hour
+      temp_data <- all_curbs %>%
+        mutate(day = day,
+               hour = hour)
+      
+      # Make predictions with the model
+      temp_predictions <- predict(final_rf_fit, temp_data)
+      
+      # Add the predictions as a new column
+      temp_data <- temp_data %>%
+        mutate(Prediction = temp_predictions)
+      
+            # Bind the rows to the all_predictions data frame
+      all_predictions <- rbind(all_predictions, temp_data)
+    }
+  }
+
+all_predictions <- all_predictions %>%
+  unnest(Prediction) %>%
+  rename(Prediction=.pred)
+
+write_csv(all_predictions,"./allcurbs_prediction_0425.csv")
 ```
-
 
 

@@ -1,0 +1,25 @@
+﻿Retail,Quick grocery,Dining,Housing,Commercial,Industrial,Civic,School,Healthcare,Parking,Attraction
+nn1_department_store_shop,nn1_alcohol_shop,nn1_beverages_shop,nn1_apartments_building,nn1_commercial_building,nn1_warehouse_building,nn1_church_building,nn1_college_building,nn1_hospital_building,nn1_parking_space_amenity,nn1_nightclub_amenity
+nn2_department_store_shop,nn2_alcohol_shop,nn2_beverages_shop,nn2_apartments_building,nn2_commercial_building,nn2_warehouse_building,nn2_church_building,nn2_college_building,nn2_hospital_building,nn2_parking_space_amenity,nn2_nightclub_amenity
+nn3_department_store_shop,nn3_alcohol_shop,nn3_beverages_shop,nn3_apartments_building,nn3_commercial_building,nn3_warehouse_building,nn3_church_building,nn3_college_building,nn3_hospital_building,nn3_parking_space_amenity,nn3_nightclub_amenity
+nn1_supermarket_shop,nn1_bakery_shop,nn1_deli_shop,nn1_dormitory_building,nn1_office_building,,nn1_government_building,nn1_college_amenity,nn1_clinic_amenity,,nn1_theatre_amenity
+nn2_supermarket_shop,nn2_bakery_shop,nn2_deli_shop,nn2_dormitory_building,nn2_office_building,,nn2_government_building,nn2_college_amenity,nn2_clinic_amenity,,nn2_theatre_amenity
+nn3_supermarket_shop,nn3_bakery_shop,nn3_deli_shop,nn3_dormitory_building,nn3_office_building,,nn3_government_building,nn3_college_amenity,nn3_clinic_amenity,,nn3_theatre_amenity
+nn1_clothes_shop,nn1_convenience_shop,nn1_bar_amenity,nn1_hotel_building,,,nn1_public_building,nn1_school_amenity,nn1_hospital_amenity,,nn1_conference_centre_amenity
+nn2_clothes_shop,nn2_convenience_shop,nn2_bar_amenity,nn2_hotel_building,,,nn2_public_building,nn2_school_amenity,nn2_hospital_amenity,,nn2_conference_centre_amenity
+nn3_clothes_shop,nn3_convenience_shop,nn3_bar_amenity,nn3_hotel_building,,,nn3_public_building,nn3_school_amenity,nn3_hospital_amenity,,nn3_conference_centre_amenity
+nn1_gift_shop,,nn1_cafe_amenity,,,,nn1_community_centre_amenity,nn1_university_amenity,nn1_pharmacy_amenity,,
+nn2_gift_shop,,nn2_cafe_amenity,,,,nn2_community_centre_amenity,nn2_university_amenity,nn2_pharmacy_amenity,,
+nn3_gift_shop,,nn3_cafe_amenity,,,,nn3_community_centre_amenity,nn3_university_amenity,nn3_pharmacy_amenity,,
+nn1_retail_building,,nn1_fast_food_amenity,,,,nn1_police_amenity,nn1_school_building,,,
+nn2_retail_building,,nn2_fast_food_amenity,,,,nn2_police_amenity,nn2_school_building,,,
+nn3_retail_building,,nn3_fast_food_amenity,,,,nn3_police_amenity,nn3_school_building,,,
+nn1_bank_amenity,,nn1_pub_amenity,,,,nn1_post_box_amenity,nn1_university_building,,,
+nn2_bank_amenity,,nn2_pub_amenity,,,,nn2_post_box_amenity,nn2_university_building,,,
+nn3_bank_amenity,,nn3_pub_amenity,,,,nn3_post_box_amenity,nn3_university_building,,,
+nn1_atm_amenity,,nn1_restaurant_amenity,,,,nn1_post_office_amenity,,,,
+nn2_atm_amenity,,nn2_restaurant_amenity,,,,nn2_post_office_amenity,,,,
+nn3_atm_amenity,,nn3_restaurant_amenity,,,,nn3_post_office_amenity,,,,
+,,,,,,nn1_place_of_worship_amenity,,,,
+,,,,,,nn2_place_of_worship_amenity,,,,
+,,,,,,nn3_place_of_worship_amenity,,,,
