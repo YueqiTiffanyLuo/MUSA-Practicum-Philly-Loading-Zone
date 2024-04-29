@@ -16,11 +16,32 @@ knitr::opts_chunk$set(echo = TRUE,warning = FALSE, message = FALSE)
 
 # 1 Introduction
 
-The City of Philadelphia’s Smart Cities Director (of the City’s Innovation Management Team and Office of Information Technology) (“the client”) wishes to create a proof-of-concept data framework for siting new curbside loading zones for commercial vehicles. The increase in home delivery and on-demand logistics has created a need for new tools to decongest the right-of-way. In 2022-23, Philadelphia piloted a “Smart Loading Zone” program in select locations. This was an app-based, sensor-monitored reservation system. The pilot generated data about individual vehicles parking in each zone. What will happen if we want to site new loading zones elsewhere in the city? How can an official make an argument for taking away curb parking at a particular location? Your job is to use pilot data to create accurate models that can be used to estimate demand at new locations.
+In October 2022, the City of Philadelphia introduced a pilot program that tested 20 paid, curbside loading spaces for delivery drivers in Center City, known as “smart loading zones.” 
+
+A conventional loading zone is a dedicated space on the street within the parking lane
+that gives vehicles space to conduct loading and unloading activities. Parking is not
+permitted in a loading zone, and there is usually a fixed time limit for its use by a given
+vehicle. The City posts rules for using a loading zone on signages next to the loading
+space and expects the users to read the signages before using the space.
+
+Like a conventional loading zone, a Smart Loading Zone is also a dedicated space on
+the street to conduct loading and unloading activities. However, the availability, and regulations for Smart Loading Zones are digitally codified and the zones are bookable through the Pebble Driver app. This digitization of physical space will allow delivery companies to reserve spaces and pay for only the time they use. Drivers and delivery companies were able to reserve spaces and times through a smartphone app. 
+
+This pilot was conducted for six months from October 2022 to April 2023. 
+
+## Project Site
+
+## Scope
+
+The pilot generated data about individual vehicles parking in each zone. The increase in home delivery and on-demand logistics has created a need for new tools to decongest the right-of-way. Our project explores the potential of opening new smart loading zones in the city. Using pilot data, we created a predictive model that can be used to estimate demand at new locations.
+
+Through an iterative process, our team has meticulously crafted a high-performing model leveraging a wealth of data provided by the client regarding bookings made through the Smart Loading Zones app. Additionally, we have integrated external data sources such as OpenStreetMap and census data to enrich our model's insights and accuracy. This iterative approach has allowed us to continuously refine and enhance our model, ensuring that it effectively predicts and optimizes Smart Loading Zone demand. 
 
 
 
 # 2 Data Manipulation and Visualization
+
+Understanding the demand for Smart Loading Zones involves considering various factors that influence a driver's need to stop. Firstly, it's essential to assess the distance to the nearest location of various land uses, as this can indicate potential loading or unloading requirements. Secondly, analyzing the volume and purpose of vehicles using the road provides insight into the overall traffic flow and potential demand for loading zones. Official road classifications offer additional context regarding road infrastructure and usage patterns. Moreover, considering factors such as rush hour versus off-peak times helps in identifying peak demand periods. By segmenting bookings into different times of the day, the model can better anticipate and accommodate varying demand levels, optimizing the utilization of Smart Loading Zones effectively.
 
 
 ```{r , include=FALSE}
@@ -272,7 +293,9 @@ polygon <- read_sf("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Pract
 ```
 
 ## Old Data for Testing - Booking Data Exploratory Analysis
-Utilization of curb zones
+
+The booking data encompasses both the quantity of reservations facilitated through the application and instances of violations, where drivers utilize the space without prior booking. On the other hand, curb data includes a comprehensive inventory of point and linear assets positioned along each curb, ranging from trees to stop signs, contributing to the overall streetscape and functionality. However, it's crucial to acknowledge the underrepresentation apparent within the data, reflecting a significant portion of users who opt for conventional methods rather than utilizing the application. This tendency to adhere to traditional practices highlights the necessity for further engagement efforts to encourage broader adoption and participation in the Smart Loading Zone ecosystem.
+
 ```{r}
 utilization <- booking_data %>%
   dplyr::select(SmartZoneName,OMFCurbZoneID,EventType,ViolationType,VehicleType,TimeRequestedHour,Amount,geometry)
