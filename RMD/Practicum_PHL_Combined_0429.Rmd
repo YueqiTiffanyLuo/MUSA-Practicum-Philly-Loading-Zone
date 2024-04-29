@@ -1428,6 +1428,7 @@ test_set_simple <- panel[-train_index_simple, ]
 Simplified Panel with time, road network, and nearest neighbors variables.
 
 ### Hyper Parameters
+By adjusting the hyperparameters, the optimal combination is as follows:
 mtry=17, nodesize = 22, ntree = 1000, maxnodes = 20
 
 ```{r include=FALSE}
@@ -1487,6 +1488,8 @@ predictions <- predict(final_rf_fit, test_set_simple)
 summary(predictions)
 ```
 
+The chart visualizes the relative importance of the top 20 variables in a predictive model. Notably, the 'week' variable stands out as the most significant predictor, followed by the day variable, and the distance to class 4 and class 2 roads, indicating their substantial influence on the model's output. Other proximity-related variables such as civic, retail, grocery, housing, dining, parking amenities, and schools are also identified as key factors, though to a lesser extent than week and road class variables.
+
 ```{r echo=TRUE, fig.height=4, fig.width=6}
 
 top_n <- 20
@@ -1510,10 +1513,44 @@ test_set_simple <- test_set_simple %>%
 ```
 
 ## Model Generalizability Evaluation
+### Examine Error Metrics for Accuracy
+
+The provided chart showcases the performance of a Random Forest model used for predicting bookings on a weekly basis. It indicates that the model tends to underperform particularly in extreme scenarios, such as when bookings are unusually high. The model shows a noticeable disparity in predictive accuracy for bookings that exceed an average of 1, often underestimating the actual values. Additionally, it is noteworthy that there are no bookings during the week of Christmas.
+
+Apart from that, there's an observable seasonal trend in bookings, which the model does not seem to fully capture. This limitation is likely due to the model being trained on a dataset limited to the months of October through April, which may not be representative of the entire year. This seasonal effect and the limited data scope could be contributing to the model's reduced effectiveness during peak booking periods in summer.
+
+```{r echo=TRUE, fig.height=6, fig.width=12}
+
+# add a 'year' variable to distinguish between years, then create an 'ordered_week' variable for proper week ordering.
+test_set_simple <- test_set_simple %>%
+  mutate(year = if_else(week >= 42, "2022", "2023")) %>%  # Assign "Year1" or "Year2" based on the week number
+  arrange(year, week) %>%  # Sort by year and week
+  mutate(ordered_week = row_number())  # Assign a unique ordering number for each week
+# add a 'year' variable to distinguish between years, then create an 'ordered_week' variable for proper week ordering.
+
+# Now use this 'ordered_week' variable to draw your plot
+test_set_simple %>%
+  select(SmartZoneName, ordered_week, day, Events, Prediction) %>%
+  gather(Variable, Value, Events, Prediction) %>%  # Transform data to long format for plotting
+  group_by(Variable, ordered_week, day) %>%
+  summarize(Value = mean(Value, na.rm = TRUE), .groups = 'drop') %>%  # Calculate average value for each group
+  ggplot(aes(x = ordered_week, y = Value, color = Variable, group = Variable)) +  # Plotting
+    geom_line(size = 0.5) + 
+  scale_color_manual(values = c("bookings" = "#440154", "Prediction" = "#35B779")) +
+    scale_x_continuous(breaks = test_set_simple$ordered_week, labels = test_set_simple$Week) +  # Custom x-axis breaks and labels
+    labs(title = "Predicted/Observed Bookings from Octobet, 2022 to April, 2023", 
+         subtitle = "Random Forest Model by Week and Day", 
+         x = "Week of Year", 
+         y = "Average Bookings") +  # Labels and titles
+    theme_minimal() +  # Minimal theme
+    #theme(axis.text.x = element_blank()  # Hide x-axis text)
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5))  # Adjust the appearance of x-axis text
+
+```
 
 ### Space-Time Error Evaluation
 
-```{r}
+```{r include=FALSE}
 error_analysis_curb <- test_set_simple %>%
   group_by(SmartZoneName,Road_class) %>%
   summarise(
@@ -1525,7 +1562,7 @@ error_analysis_curb <- test_set_simple %>%
   arrange(desc(MeanAbsResidual))
 ```
 
-This map provides a spatial overview of the model’s performance across different streets, where larger circles indicate a higher MAE at that curb, suggesting that the model's predictions are less accurate on Chestnut St, while Walnut St has a better performance, except for the one near broad street.
+This map provides a spatial overview of the model’s performance across different streets, where larger circles with more bright colors indicate a higher MAE at that curb, suggesting that the model's predictions are less accurate on Chestnut St, while Walnut St has a relatively better performance.
 
 ```{r echo=TRUE, fig.height=4, fig.width=8}
 # Now group by SmartZoneName and summarize the residuals
@@ -1568,7 +1605,7 @@ tm <- tm_shape(error_analysis_curb) +
 tm
 ```
 
-From the chart, the high error in conjunction with high data counts suggest a systematic issue with the model especially on Wednesday, rather than a random fluctuation. As such, there's need to further check the weekly patterns or specific events impacting the model performance. While those low-low points, like Monday and Friday, demonstrate its good performance.
+From the chart, the high error in conjunction with high data counts suggest a systematic issue with the model especially on Tuesday and Thursday, rather than a random fluctuation. As such, there's need to further check the weekly patterns or specific events impacting the model performance. While those low error points with low data counts, like Monday, demonstrate its good performance.
 
 ```{r echo=TRUE, fig.height=4, fig.width=6}
 # Now group by SmartZoneName and summarize the residuals
@@ -1585,7 +1622,7 @@ error_analysis_day <- test_set_simple %>%
 # View the error analysis results
 print(error_analysis_day)
 
-error_analysis_day$day_of_week <- factor(error_analysis_day$day, 
+error_analysis_day$day <- factor(error_analysis_day$day, 
                                  levels = c("Mon", "Tue", "Wed", "Thu", "Fri"), 
                                  ordered = TRUE)
 
@@ -1601,7 +1638,7 @@ ggplot(error_analysis_day, aes(x = day, y = MAE)) +
 
 ```
 
-The prediction performance is more accurate during the early morning from 6-8 AM, whereas it tends to have higher errors from 8-10 AM.
+The prediction performance is more accurate during Monday and Friday, whereas it tends to have higher errors on middle of the week, especially on Tuesday.
 
 ```{r echo=TRUE, fig.height=2, fig.width=4}
 # Now group by SmartZoneName and summarize the residuals
@@ -1615,6 +1652,10 @@ error_analysis_day <- test_set_simple %>%
   ) %>%
   arrange(desc(MAE))
 
+error_analysis_day$day <- factor(error_analysis_day$day, 
+                                 levels = c("Mon", "Tue", "Wed", "Thu", "Fri"), 
+                                 ordered = TRUE)
+
 # View the error analysis results
 print(error_analysis_day)
 
@@ -1627,25 +1668,32 @@ ggplot(error_analysis_day, aes(x = factor(day), y = MAE)) +
 
 ```
 
-Overall, the model seems to be more accurate and precise for lower values of bookings and shows some divergence from the observed data at higher booking values. The similarity of the trend lines in both panels suggests the model performs consistently across weekdays and weekends.
+Overall, the model seems to be more accurate and precise for lower values of bookings and shows some divergence from the observed data at higher booking values. The similarity of the trend lines in five panels suggests the model performs consistently across weekdays and weekends. However, the model doesn't seem to be able to catch high values within the weekdays.
 
 ```{r echo=TRUE, fig.height=2, fig.width=8}
-ggplot()+
-  geom_point(data = test_set_simple,aes(x= Events, y = Prediction),color = "#35B779")+
-    geom_smooth(data = test_set_simple,aes(x= Events, y= Prediction), method = "lm", se = FALSE, color = '#440154')+
-    geom_abline(slope = 1, intercept = 0)+
-  facet_grid(~day)+
-  labs(title="Observed vs Predicted",
-       subtitle = 'hour of day camparison',
-       x="Bookings", 
-       y="Predicted Bookings")+
+
+# 确保 test_set_simple 数据集中的 day 列是一个有序因子
+test_set_simple$day <- factor(test_set_simple$day, 
+                              levels = c("Mon", "Tue", "Wed", "Thu", "Fri"), 
+                              ordered = TRUE)
+
+# 创建你的 ggplot 可视化
+ggplot() +
+  geom_point(data = test_set_simple, aes(x = Events, y = Prediction), color = "#35B779") +
+  geom_smooth(data = test_set_simple, aes(x = Events, y = Prediction), method = "lm", se = FALSE, color = '#440154') +
+  geom_abline(slope = 1, intercept = 0) +
+  facet_grid(~day) +  # 这里会使用 day 变量的顺序
+  labs(title = "Observed vs Predicted",
+       subtitle = 'Weekday Comparison',
+       x = "Bookings", 
+       y = "Predicted Bookings") +
   plotTheme()+
   theme_minimal()
 ```
 
 ### Cross-validation
 
-The cross-validation chart indicates that for a random forest model subjected to a 50-fold cross-validation process, the Goodness of Fit metrics—MAE, RMSE, and Rsquared—are closely clustered around their respective means. Specifically, the MAE around 0.25 and RMSE values suggest a consistent average error magnitude across folds. The Rsquared values around 0.08 imply that the model explains about half of the variability in the data. Those tight clustering of these metrics further suggests that the model has stable performance and reasonable generalizability across different data subsets.
+The cross-validation chart indicates that for a random forest model subjected to a 50-fold cross-validation process, the Goodness of Fit metrics—MAE, RMSE, and Rsquared—are closely clustered around their respective means. Specifically, the model's predictions were off by over 0.47(MAE), whereas the RMSE's central clustering suggests a similarly consistent average error magnitude but considering the squaring of the errors, which gives more weight to larger errors. The Rsquared values around 0.23 imply that the model explains only 23% of the variability in the data.It implies that the model is not capturing the complexity of the data.
 
 ```{r cv, echo=TRUE, fig.height=4, fig.width=8}
 fitControl <- trainControl(method = "cv", number = 50)
@@ -1654,10 +1702,10 @@ set.seed(825)
 rf.cv <- train(Events ~ ., data = train_set_simple, 
                method = "rf",
                trControl = fitControl,
-               tuneGrid = expand.grid(.mtry = 30),
+               tuneGrid = expand.grid(.mtry = 17),
                importance = TRUE,
                ntree = 1000,
-               nodesize = 10,
+               nodesize = 22,
                maxnodes = 20)
 
 rf.cv
