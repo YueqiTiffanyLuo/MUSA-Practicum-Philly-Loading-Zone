@@ -257,7 +257,7 @@ new_cats <- read.csv("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Pra
 
 #merged_df2 <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/all_curbs_0415.geojson")
 
-panel <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/04_25_reduced_panel.geojson")
+panel <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/04_29_reduced_panel.geojson")
 geo <- read.csv("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/geometry.csv")
 try <- read_sf("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/finalpanel.geojson")
 add <- read_sf("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/add.geojson")
@@ -1428,7 +1428,7 @@ test_set_simple <- panel[-train_index_simple, ]
 Simplified Panel with time, road network, and nearest neighbors variables.
 
 ### Hyper Parameters
-mtry=17, ntree = 1000, nodesize = 22,maxnodes = 20
+mtry=17, nodesize = 22, ntree = 1000, maxnodes = 20
 
 ```{r include=FALSE}
 
@@ -1506,7 +1506,7 @@ test_set_simple <- test_set_simple %>%
   )
 
 #setwd("/Users/lingchen/Documents/Practicum/Practicum_Philly_2024/Data")
-#write_csv(test_set_simple,"./testresult_0428.csv")
+#write_csv(test_set_simple,"./testresult_0429.csv")
 ```
 
 ## Model Generalizability Evaluation
@@ -1712,6 +1712,6 @@ all_predictions <- all_predictions %>%
   unnest(Prediction) %>%
   rename(Prediction=.pred)
 
-write_csv(all_predictions,"./allcurbs_prediction_0428.csv")
+write_csv(all_predictions,"./allcurbs_prediction_0429.csv")
 ```
 
