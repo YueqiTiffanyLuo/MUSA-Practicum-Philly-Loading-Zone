@@ -74,6 +74,9 @@ library(riem)
 library(jsonlite)
 library(readr)
 library(httr)
+library(tidymodels)
+library(randomForest)
+library(vip)
 
 #library(rjson)
 
@@ -249,18 +252,11 @@ road_class <- read.csv("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-P
 
 og_panel <- read.csv("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/first_panel.csv")
 
-
-panel <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/all_curbs_nn.geojson")
-
 new_cats <- read.csv("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/new_categories.csv")
 
 
-merged_df2 <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/all_curbs_0415.geojson")
+#merged_df2 <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/all_curbs_0415.geojson")
 
-
-simple_panel <- read.csv("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/03_31_panel.csv")
-detail_panel <- read.csv("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/detailed_03_31_panel.csv")
-old_panel <- read.csv("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/updated_04_01_panel.csv")
 panel <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/04_23_reduced_panel.geojson")
 geo <- read.csv("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/geometry.csv")
 try <- read_sf("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/finalpanel.geojson")
@@ -1439,34 +1435,28 @@ mtry=30, ntree = 1000, nodesize = 10,maxnodes = 20
 train_set_simple <- train_set_simple %>%
   select(-SmartZoneName)  
 
-# 定义随机森林模型规范
 rf_spec <- rand_forest(
   mtry = tune(), 
   trees = 1000,
-  min_n = tune()  # 对应于nodesize
+  min_n = tune()  # nodesize
 ) %>%
   set_mode("regression") %>%
   set_engine("randomForest")
 
-# 定义数据预处理
 rf_recipe <- recipe(Events ~ ., data = train_set_simple)
 
-# 创建调优网格
 tune_grid <- grid_regular(
   mtry(c(5, 30)),
   min_n(c(10, 60)),
   levels = 5
 )
 
-# 设置交叉验证的训练控制
 cv_folds <- vfold_cv(train_set_simple, v = 10)
 
-# 组合工作流
 rf_workflow <- workflow() %>%
   add_recipe(rf_recipe) %>%
   add_model(rf_spec)
 
-# 调整模型
 rf_results <- tune_grid(
   rf_workflow,
   resamples = cv_folds,
@@ -1474,7 +1464,6 @@ rf_results <- tune_grid(
   metrics = metric_set(rmse)
 )
 
-# 查看最佳参数
 best_params <- select_best(rf_results, metric = "rmse")
 
 ```
@@ -1640,8 +1629,8 @@ Overall, the model seems to be more accurate and precise for lower values of boo
 
 ```{r echo=TRUE, fig.height=2, fig.width=8}
 ggplot()+
-  geom_point(data = test_set_simple,aes(x= Events, y = prediction),color = "#35B779")+
-    geom_smooth(data = test_set_simple,aes(x= Events, y= prediction), method = "lm", se = FALSE, color = '#440154')+
+  geom_point(data = test_set_simple,aes(x= Events, y = Prediction),color = "#35B779")+
+    geom_smooth(data = test_set_simple,aes(x= Events, y= Prediction), method = "lm", se = FALSE, color = '#440154')+
     geom_abline(slope = 1, intercept = 0)+
   facet_grid(~hour)+
   labs(title="Observed vs Predicted",
@@ -1689,8 +1678,6 @@ dplyr::select(rf.cv$resample, -Resample) %>%
 
 ```{r}
 
-all_curbs <- read_sf("./all_curbs_0415.geojson")
-
 all_curbs <- all_curbs %>%
   select(-TARGET_FID, -end_st_.x, -strt_s_.x, -strt_nm.x, -OID_, -Join_Count, -categry, -curb_id, -currncy, -dstnc_n_, -dstnc_s_, -end_st_.y, -mx_drt_, -price, -rgltn_t, -sd_f_st, -smrt_z_, -strt_s_.y, -strt_nm.y, -time_zn, -vhcl_ty, -Shape_Length, -geometry) %>%
   rename(Road_class = Road_Class)
@@ -1723,6 +1710,6 @@ all_predictions <- all_predictions %>%
   unnest(Prediction) %>%
   rename(Prediction=.pred)
 
-write_csv(all_predictions,"./allcurbs_prediction_0425.csv")
+#write_csv(all_predictions,"./allcurbs_prediction_0425.csv")
 ```
 
