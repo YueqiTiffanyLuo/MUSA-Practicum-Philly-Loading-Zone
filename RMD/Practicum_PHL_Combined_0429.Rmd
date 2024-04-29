@@ -31,6 +31,9 @@ This pilot was conducted for six months from October 2022 to April 2023.
 
 ## Project Site
 
+![Project Site and Operating Hours](https://www.phila.gov/media/20220930084427/Smart-Loading-Zones-map.png)
+
+
 ## Scope
 
 The pilot generated data about individual vehicles parking in each zone. The increase in home delivery and on-demand logistics has created a need for new tools to decongest the right-of-way. Our project explores the potential of opening new smart loading zones in the city. Using pilot data, we created a predictive model that can be used to estimate demand at new locations.
