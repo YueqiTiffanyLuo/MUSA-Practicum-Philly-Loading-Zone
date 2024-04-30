@@ -101,6 +101,7 @@ library(httr)
 library(tidymodels)
 library(randomForest)
 library(vip)
+library(pROC)
 
 #library(rjson)
 
@@ -1753,6 +1754,26 @@ ggplot() +
   plotTheme()+
   theme_minimal()
 ```
+
+### Binary Prediction Performance
+
+```{r}
+binary <- test_set_simple%>%
+  select(SmartZoneName,Events,Prediction)
+
+binary$Events_binary <- ifelse(binary$Events > 0, 1, 0)
+# Convert predictions to binary
+binary$Prediction_binary <- ifelse(binary$Prediction > 0.5, 1, 0)
+
+conf_matrix <- confusionMatrix(as.factor(binary$Prediction_binary), as.factor(binary$Events_binary))
+print(conf_matrix)
+
+# ROC curve
+roc_obj <- roc(binary$Events, binary$Prediction)
+plot(roc_obj)
+auc(roc_obj)
+```
+
 
 ### Cross-validation
 
