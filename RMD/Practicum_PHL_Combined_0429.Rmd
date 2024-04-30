@@ -1576,37 +1576,30 @@ test_set_simple %>%
 
 ### Space-Time Error Evaluation
 
-```{r include=FALSE}
-error_analysis_curb <- test_set_simple %>%
-  group_by(SmartZoneName,Road_class) %>%
-  summarise(
-    MeanResidual = mean(Residual, na.rm = TRUE),
-    MeanAbsResidual = mean(AbsResidual, na.rm = TRUE),
-    MSE = mean(Residual^2, na.rm = TRUE),
-    Count = n()
-  ) %>%
-  arrange(desc(MeanAbsResidual))
-```
-
-This map provides a spatial overview of the model’s performance across different streets, where larger circles with more bright colors indicate a higher MAE at that curb, suggesting that the model's predictions are less accurate on Chestnut St, while Walnut St has a relatively better performance.
+This map provides a spatial overview of the model’s performance across different streets, where larger circles with more bright colors indicate a higher MAPE at that curb, suggesting that the model's predictions are less accurate on Walnut St, while Chestnut & Sansom St has a relatively better performance.
 
 ```{r echo=TRUE, fig.height=4, fig.width=8}
 # Now group by SmartZoneName and summarize the residuals
 
 error_analysis_curb <- test_set_simple %>%
-  group_by(SmartZoneName, Road_class) %>%
+  group_by(SmartZoneName,Road_class) %>%
   summarise(
-    MeanResidual = mean(Residual, na.rm = TRUE),  # 平均误差
-    MAE = mean(AbsResidual, na.rm = TRUE),  # 平均绝对误差（MAE）
-    MSE = mean(Residual^2, na.rm = TRUE),  # 均方误差
-    RMSE = sqrt(MSE),  # 均方根误差
-    Count = n(),  # 计数
-    .groups = "drop"  # 防止之后版本的 dplyr 报错
+    Mean_events=mean(Events),
+    Mean_booking=mean(Prediction),
+    MeanResidual = mean(Residual, na.rm = TRUE),
+    MAE = mean(AbsResidual, na.rm = TRUE),
+    MSE = mean(Residual^2, na.rm = TRUE),
+    RMSE = sqrt(MSE),
+    MAPE = 100*(MAE/Mean_events),
+    MEDAPE = 100*(median(AbsResidual)/median(Events)),
+    Count = n()
   ) %>%
-  arrange(desc(MAE))
+  arrange(desc(MAPE))
 
 # View the error analysis results
 print(error_analysis_curb)
+error_analysis_curb <- error_analysis_curb %>%
+  filter(is.finite(MAPE))
 
 geo <- geo %>%
   select(SmartZoneName,geometry)%>%
@@ -1626,24 +1619,31 @@ error_analysis_curb <- geo_sf %>%
 tmap_mode("view")
 
 tm <- tm_shape(error_analysis_curb) +
-  tm_bubbles(size = "MAE", col = "MAE", palette = "viridis", scale=5, border.col = "black", 
-             title.size = "MAE", title.col = "MAE") 
+  tm_bubbles(size = "MAPE", col = "MAPE", palette = "viridis", scale=5, border.col = "black", 
+             title.size = "MAPE", title.col = "MAPE") 
 tm
 ```
 
-From the chart, the high error in conjunction with high data counts suggest a systematic issue with the model especially on Tuesday and Thursday, rather than a random fluctuation. As such, there's need to further check the weekly patterns or specific events impacting the model performance. While those low error points with low data counts, like Monday, demonstrate its good performance.
+From the chart, the high error in conjunction with high data counts suggest a systematic issue with the model especially on Friday and Tuesday, rather than a random fluctuation. As such, there's need to further check the weekly patterns or specific events impacting the model performance. While those low error points with low data counts, like Monday, demonstrate its good performance.
 
 ```{r echo=TRUE, fig.height=4, fig.width=6}
+
 # Now group by SmartZoneName and summarize the residuals
 error_analysis_day <- test_set_simple %>%
   group_by(day) %>%
   summarise(
+    Mean_events=mean(Events),
+    Mean_booking=mean(Prediction),
     MeanResidual = mean(Residual, na.rm = TRUE),
     MAE = mean(AbsResidual, na.rm = TRUE),
     MSE = mean(Residual^2, na.rm = TRUE),
+    RMSE = sqrt(MSE),
+    MAPE = 100*(MAE/Mean_events),
+    MEDAPE = 100*(median(AbsResidual)/median(Events)),
     Count = n()
   ) %>%
-  arrange(desc(MAE))
+  arrange(desc(MAPE))
+
 
 # View the error analysis results
 print(error_analysis_day)
@@ -1653,12 +1653,12 @@ error_analysis_day$day <- factor(error_analysis_day$day,
                                  ordered = TRUE)
 
 
-ggplot(error_analysis_day, aes(x = day, y = MAE)) +
-  geom_point(aes(size = Count, color = MAE)) +  
+ggplot(error_analysis_day, aes(x = day, y = MAPE)) +
+  geom_point(aes(size = Count, color = MAPE)) +  
   scale_color_gradient(low = "#35B779", high = "#440154") +  
   labs(x = "Day of the Week", 
-       y = "Mean Absolute Error (MAE)", 
-       title = "Daily Mean Absolute Error") +
+       y = "Daily Mean Absolute Percentage Error (MAPE)", 
+       title = "Daily Forecast Error as a Percentage") +
   theme_minimal() +
   theme(legend.position = "bottom") 
 
@@ -1667,29 +1667,12 @@ ggplot(error_analysis_day, aes(x = day, y = MAE)) +
 The prediction performance is more accurate during Monday and Friday, whereas it tends to have higher errors on middle of the week, especially on Tuesday.
 
 ```{r echo=TRUE, fig.height=2, fig.width=4}
-# Now group by SmartZoneName and summarize the residuals
-error_analysis_day <- test_set_simple %>%
-  group_by(day) %>%
-  summarise(
-    MeanResidual = mean(Residual, na.rm = TRUE),
-    MAE = mean(AbsResidual, na.rm = TRUE),
-    MSE = mean(Residual^2, na.rm = TRUE),
-    Count = n()
-  ) %>%
-  arrange(desc(MAE))
 
-error_analysis_day$day <- factor(error_analysis_day$day, 
-                                 levels = c("Mon", "Tue", "Wed", "Thu", "Fri"), 
-                                 ordered = TRUE)
-
-# View the error analysis results
-print(error_analysis_day)
-
-ggplot(error_analysis_day, aes(x = factor(day), y = MAE)) +
+ggplot(error_analysis_day, aes(x = factor(day), y = MAPE)) +
   geom_bar(stat = "identity", aes(fill = factor(day))) +
   scale_fill_manual(values = palette5) + 
-  labs(x = "Day of the Week", y = "Mean Absolute Residual", 
-       title = "Mean Absolute Residuals by Day of the Week") +
+  labs(x = "Day of the Week", y = "Mean Absolute Percentage Error (MAPE)", 
+       title = "Daily Forecast Error as a Percentage") +
   theme_minimal()
 
 ```
