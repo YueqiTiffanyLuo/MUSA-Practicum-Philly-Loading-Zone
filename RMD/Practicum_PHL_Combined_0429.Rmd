@@ -561,6 +561,29 @@ ggplot(vehicle_type,aes(x=vehicle_type,y=Total_Events))+
 nrow=2)
 ```
 
+```{r echo=TRUE, fig.height=4, fig.width=8}
+curb_bookings <- panel %>%
+  group_by(SmartZoneName) %>%
+  summarise(Bookings=sum(Events)) %>%
+  arrange(desc(Bookings))
+
+  ggplot(curb_bookings, aes(x=SmartZoneName, y=Bookings)) + 
+    geom_bar(stat="identity",fill="#1F9E89")+
+    labs(title="Average Bookings by Curb Zones", x="Curb Zone", y="Bookings") + 
+    theme_minimal()
+  
+
+curb_bookings <- geo_sf %>%
+  left_join(curb_bookings, by=c("SmartZoneName"))
+
+# Set tmap mode to view for interactive maps
+tmap_mode("view")
+
+tm2 <- tm_shape(curb_bookings) +
+  tm_bubbles(size = "Bookings", col = "Bookings", palette = "viridis", scale=5, border.col = "black", 
+             title.size = "Bookings", title.col = "Total Bookings") 
+tm2
+```
 
 ## Road Network Exploratory Analysis 
 
@@ -1332,8 +1355,6 @@ panel <- panel %>%
 col_order <- c(setdiff(names(panel), "geometry"), "geometry")
 panel <- panel[col_order]
 
-
-
 ```
 
 ##panel for model
@@ -1390,10 +1411,11 @@ add_panel <- final_panel%>%
 ```
 
 ## OLS Test
-```{r}
+
+```{r echo=TRUE, fig.height=4, fig.width=4}
 # Subset the dataframe to include only numeric columns
-numeric_columns <- sapply(final_panel, is.numeric)
-dat_num <- final_panel[, numeric_columns] %>% st_drop_geometry()
+numeric_columns <- sapply(panel, is.numeric)
+dat_num <- panel[, numeric_columns] %>% st_drop_geometry()
 dat_nn <- dat_num %>%na.omit()
 
 
@@ -1405,8 +1427,8 @@ model_info <- data.frame(Variable = character(),
                          stringsAsFactors = FALSE)
 
 # Loop through each numeric variable, excluding the target variable
-for(var in setdiff(names(dat_num), "Total_Events")) {
-  formula <- as.formula(paste("Total_Events ~", var))
+for(var in setdiff(names(dat_num), "Events")) {
+  formula <- as.formula(paste("Events ~", var))
   model <- lm(formula, data = dat_num)
   summary_model <- summary(model)
   
@@ -1418,20 +1440,52 @@ for(var in setdiff(names(dat_num), "Total_Events")) {
                                              pValue = summary_model$coefficients[2, 4]))
 }
 
+model_info %>%
+  arrange(pValue)
+
+ 
+significant_vars <- model_info %>% 
+  filter(pValue < 0.05)
+
+# -log(p)
+significant_vars$pValue_neg_log <- -log10(significant_vars$pValue)
+
+ggplot(significant_vars, aes(x = reorder(Variable, pValue_neg_log), y = pValue_neg_log)) +
+  geom_col(fill = "#35B779") +
+  coord_flip() +  
+  labs(title = "Variable Importance Based on Transformed p-Values (p < 0.05)",
+       x = "Variable",
+       y = "-log10(p-Value)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+
 ```
 
-```{r}
-model_info_sub <- final_panel%>% select(car,PM_Rush,overnight,Total_Dwell_Time,Sat,Wed,Thu,Fri,Tue,Mon,Sun,nn1_conference_centre_amenity,nn2_conference_centre_amenity,nn3_conference_centre_amenity,nn3_department_store_shop,nn2_clinic_amenity,nn2_department_store_shop,nn3_place_of_worship_amenity,nn2_place_of_worship_amenity,nn1_place_of_worship_amenity,nn1_department_store_shop,nn1_clinic_amenity,nn1_church_building,nn2_church_building,nn3_church_building,nn2_beverages_shop,nn2_clothes_shop,Total_Events)
+```{r echo=TRUE, fig.height=4, fig.width=4}
+# Assuming panel is your dataset and has been appropriately pre-processed
+model_info_sub <- panel %>% 
+  select(-SmartZoneName, -day)
 
 
+# Plot the correlation matrix
 ggcorrplot(
   round(cor(model_info_sub %>% st_drop_geometry()), 1), 
   p.mat = cor_pmat(model_info_sub), # Changed df to model_info_sub
-  colors = c("#E63946", "white", "#2A9D8F"),
-  type = "lower",
-  insig = "blank",
-  lab = TRUE
-) + labs(title = 'Correlation across selected vars')
+  type = "lower",  # Show only the lower triangle
+  insig = "blank",  # Don't show insignificant correlations
+  #lab = TRUE,  # Show correlation coefficients in the plot
+  #lab_size = 3.5,  # Adjust label size
+  colors = c("#440154", "white", "#35B779"),  # Use a high-contrast color palette
+  tl.cex = 8,  # Text size for variable names
+  tl.col = "black",  # Text color for variable names
+  tl.srt = 45  # Text rotation for variable names
+) + 
+  labs(title = 'Correlation across all variables') +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),  # Center the title
+    axis.text.x = element_text(angle = 45, hjust = 1)  # Tilt x-axis labels for better visibility
+  )
 
 ```
 
