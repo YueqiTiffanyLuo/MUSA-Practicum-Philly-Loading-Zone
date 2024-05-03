@@ -1741,6 +1741,7 @@ test_set_simple$day <- factor(test_set_simple$day,
                               levels = c("Mon", "Tue", "Wed", "Thu", "Fri"), 
                               ordered = TRUE)
 
+
 # 创建你的 ggplot 可视化
 ggplot() +
   geom_point(data = test_set_simple, aes(x = Events, y = Prediction), color = "#35B779") +
