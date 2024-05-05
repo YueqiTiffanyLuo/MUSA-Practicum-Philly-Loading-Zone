@@ -163,7 +163,7 @@ booking_data <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-
 curb_zone <- fromJSON("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/resmartloadingzones/curb_zones.json")
 
 # load CDS event data
-event_export <- read.csv("https://github.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/blob/main/Data%20Used/Ling/events_export_CDS.csv")
+event_export <- read.csv("https://github.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/blob/main/Data%20Used/Ling/events_export_CDS.csv", sep=",")
 
 # load regulation geojson
 regulations <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/resmartloadingzones/regulations.geojson")
@@ -807,521 +807,72 @@ Many of the strongest relationships are negative ones. In particular, decreasing
 
 The positive relationships are associated with clinics and community centers.
 
-### OSM Quries
-
-```{r clear NN table}
-
-
-#Amenities
-sf_offices <- data.frame(0,2)
-
-
-x <- opq(bbox = c(-75.222702,39.935803,-75.130348,39.972647)) %>%
-  add_osm_feature(key = 'office', value = offices[3]) %>%
-  osmdata_sf ()
-
-x <- bind_rows(x$osm_points, x$osm_lines, x$osm_polygons, x$osm_multipolygons, x$osm_multilines) %>%
-  mutate(office_type = offices[3])
-
-sf_offices <- bind_rows(sf_offices, x)
-
-#st_write(sf_offices, "C:/Users/14145/Box/Practicum_Philly_2024/Michael/offices.geojson")
-
-
-sf_amenities <- sf_amenities %>%
-  dplyr::select(amenity, geometry) %>%
-  st_make_valid()
-
-sf_amenities$geometry <- st_centroid(sf_amenities$geometry)
-
-mapview(sf_amenities, zcol="amenity")
-
-
-sf_buildings <- sf_buildings %>%
-  dplyr::select(building, geometry) %>%
-  st_make_valid()
-
-sf_buildings$geometry <- st_centroid(sf_buildings$geometry)
-
-mapview(sf_buildings, zcol="building")
-
-
-sf_landuse <- sf_landuse %>%
-  dplyr::select(land_use, geometry) %>%
-  st_make_valid()
-
-#sf_landuse$geometry <- st_centroid(sf_landuse$geometry)
-sf_landuse <- sf_landuse[st_geometry_type(sf_landuse$geometry) %in% c("POLYGON", "MULTIPOLYGON"), ]
-
-mapview(sf_landuse, zcol="land_use")
-
-
-sf_shops <- sf_shops %>%
-  dplyr::select(shop, geometry) %>%
-  st_make_valid()
-
-sf_shops$geometry <- st_centroid(sf_shops$geometry)
-
-
-sf_offices <- sf_offices %>%
-  dplyr::select(office_type, geometry) %>%
-  st_make_valid()
-
-sf_offices$geometry <- st_centroid(sf_offices$geometry)
-
-ggplot()+
-  geom_sf(data=sf_buildings, aes(color=building))+
-  facet_wrap(~building)+
-  geom_sf(data=bookings, color="black")
-
-ggplot()+
-  geom_sf(data=sf_amenities, aes(color=amenity))+
-  facet_wrap(~amenity)+
-  geom_sf(data=bookings, color="black")
-
-ggplot()+
-  geom_sf(data=sf_landuse, aes(fill=land_use, color="grey"), alpha=0.5)+
-  facet_wrap(~land_use)+
-  geom_sf(data=bookings, color="black")
-
-ggplot()+
-  geom_sf(data=sf_shops, aes(color=shop))+
-  facet_wrap(~shop)+
-  geom_sf(data=bookings, color="black")
-
-ggplot()+
-  geom_sf(data=sf_offices, aes(color=office_type))+
-  facet_wrap(~office_type)+
-  geom_sf(data=bookings, color="black")
-
-
-
-
-#List of amenities
-amenities <- c("bar","cafe","fast_food","pub","restaurant","college","school","university",
-               "parking_space","bank","atm","clinic","hospital","pharmacy","community_centre",
-               "conference_centre","nightclub","theatre","police","post_box","post_office",
-               "place_of_worship")
-
-buildings <- c("apartments","dormitory","hotel","commercial","office","retail","supermarket",
-               "warehouse","church","college","government","hospital","public","school",
-               "university")
-
-landuse <- c("commercial","education","residential","retail","institutional")
-
-offices <- c("company","consulting","courier","coworking","educational_institution",
-             "financial","government","lawyer")
-
-shops <- c("alcohol","bakery","beverages","coffee","convenience","deli","department_store",
-           "general","supermarket","clothes","gift")
-
-
-
-
-curbs <- st_transform(curbs, 2272)
-
-nn_function <- function(measureFrom,measureTo,k) {
-  measureFrom_Matrix <-
-    as.matrix(measureFrom)
-  measureTo_Matrix <-
-    as.matrix(measureTo)
-  nn <-   
-    get.knnx(measureTo, measureFrom, k)$nn.dist
-  output <-
-    as.data.frame(nn) %>%
-    rownames_to_column(var = "thisPoint") %>%
-    gather(points, point_distance, V1:ncol(.)) %>%
-    arrange(as.numeric(thisPoint)) %>%
-    group_by(thisPoint) %>%
-    summarize(pointDistance = mean(point_distance)) %>%
-    arrange(as.numeric(thisPoint)) %>% 
-    dplyr::select(-thisPoint) %>%
-    pull()
-  
-  return(output)  
-}
-
-test <- curbs
-
-
-# Iterate over unique amenities
-unique_amenities <- unique(sf_amenities$amenity)
-for (amenity in unique_amenities) {
-  print(paste("Processing amenity:", amenity))
-  
-  # Filter sf_amenities by amenity type
-  subset_amenities <- sf_amenities[sf_amenities[[10]] == amenity, ]
-  
-  print(paste("Number of amenities in subset:", nrow(subset_amenities)))
-  
-  # Calculate distances between current booking and all amenities of this type
-  test[[paste0("nn1_",amenity,"_amenity")]] <- nn_function(st_coordinates(st_centroid(st_make_valid(test))), st_coordinates(st_centroid(st_make_valid(subset_amenities))), 1)
-  test[[paste0("nn2_",amenity,"_amenity")]] <- nn_function(st_coordinates(st_centroid(st_make_valid(test))), st_coordinates(st_centroid(st_make_valid(subset_amenities))), 2)
-  test[[paste0("nn3_",amenity,"_amenity")]] <- nn_function(st_coordinates(st_centroid(st_make_valid(test))), st_coordinates(st_centroid(st_make_valid(subset_amenities))), 3)
-}
-
-#Iterate for unique building types
-for (x in buildings) {
-  print(paste("Processing building:", x))
-  
-  # Filter sf_buildings by building type
-  subset_buildings <- filter(sf_buildings, building==x)
-  
-  # Check if the subset is empty
-  if (nrow(subset_buildings) == 0) {
-    cat("Skipping iteration: Subset is empty\n")
-    next  # Skip to the next iteration
-  }
-  
-  print(paste("Number of buildings in subset:", nrow(subset_buildings)))
-  
-  # Calculate distances between current booking and all amenities of this type
-  test[[paste0("nn1_",x,"_building")]] <- nn_function(st_coordinates(st_centroid(st_make_valid(test))), st_coordinates(st_centroid(st_make_valid(subset_amenities))), 1)
-  test[[paste0("nn2_",x,"_building")]] <- nn_function(st_coordinates(st_centroid(st_make_valid(test))), st_coordinates(st_centroid(st_make_valid(subset_amenities))), 2)
-  test[[paste0("nn3_",x,"_building")]] <- nn_function(st_coordinates(st_centroid(st_make_valid(test))), st_coordinates(st_centroid(st_make_valid(subset_amenities))), 3)
-}
-
-#Iterate for unique shop types
-for (x in shops) {
-  print(paste("Processing shop:", x))
-  
-  # Filter sf_buildings by shop type
-  subset_shops <- filter(sf_shops, shop==x)
-  
-  # Check if the subset is empty
-  if (nrow(subset_shops) == 0) {
-    cat("Skipping iteration: Subset is empty\n")
-    next  # Skip to the next iteration
-  }
-  
-  print(paste("Number of shops in subset:", nrow(subset_shops)))
-  
-  # Calculate distances between current booking and all amenities of this type
-  test[[paste0("nn1_",x,"_shop")]] <- nn_function(st_coordinates(st_centroid(st_make_valid(test))), st_coordinates(st_centroid(st_make_valid(subset_amenities))), 1)
-  test[[paste0("nn2_",x,"_shop")]] <- nn_function(st_coordinates(st_centroid(st_make_valid(test))), st_coordinates(st_centroid(st_make_valid(subset_amenities))), 2)
-  test[[paste0("nn3_",x,"_shop")]] <- nn_function(st_coordinates(st_centroid(st_make_valid(test))), st_coordinates(st_centroid(st_make_valid(subset_amenities))), 3)
-}
-
-#Iterate for unique office types - NOT ENOUGH OBSERVATIONS
-
-#st_write(test, "C:/Users/14145/Box/Practicum_Philly_2024/Michael/all_curbs_nn.geojson")
-
-numeric <- test %>%
-  dplyr::select(-c("SmartZoneName")) %>%
-  st_drop_geometry(.) %>%
-  mutate(log10events = log10(events))
-
-#Correlation plot
-corplot <- cor(numeric)
-
-cor_df <- as.data.frame(corplot)
-
-# Extract the column values and row names
-column_name <- "log10events"  # Replace "mpg" with the column name you want to plot
-column_values <- cor_df[[column_name]]
-cor_df <- data.frame(variable = rownames(cor_df), correlation = column_values)
-
-cor_df <- filter(cor_df, variable != "events" & variable != "log10events")
-
-# Create a bar plot using ggplot2
-library(ggthemes)
-ggplot(cor_df, aes(x = reorder(variable, -correlation), y = correlation, fill=correlation)) +
-  geom_bar(stat = "identity") +
-  labs(title = "Relationships with Log10 Events",
-       x = "Nearest Neighbor Variables",
-       y = "Correlation") +
-  ylim(-1,1)+
-  scale_fill_viridis_c()+
-  theme_wsj() +
-  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1))
-
-filter(cor_df, abs(correlation) > 0.5) %>%
-  ggplot(., aes(x = reorder(variable, -correlation), y = correlation, fill=correlation)) +
-  geom_bar(stat = "identity") +
-  labs(title = "Strongest Relationships (>0.5) with Log10 Events",
-       x = "Nearest Neighbor Variables",
-       y = "Correlation") +
-  ylim(-1,1)+
-  scale_fill_viridis_c()+
-  theme_clean() +
-  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1))
-ggplotly(p=ggplot2::last_plot())
-
-
-coords <- matrix(c(
-  -75.222702, 39.935803,
-  -75.130348, 39.935803,
-  -75.130348, 39.972647,
-  -75.222702, 39.972647,
-  -75.222702, 39.935803
-), ncol = 2, byrow = TRUE)
-
-# Create an sf polygon object
-polygon <- st_polygon(list(coords))
-polygon <- st_sfc(polygon, crs = 4326)  # Set the CRS (if necessary, replace 4326 with your desired CRS)
-
-
-
-
+### OSM Queries
+
+```{r clear NN table, fig.height=4, fig.width=8}
+# Set tmap mode to view for interactive maps
+tmap_mode("view")
+
+# Plot the booking data and bike network
+tm <- tm_shape(sf_buildings, name="OSM Buildings") +
+  tm_dots(col = "building", alpha = 0.5, legend.show=FALSE, id="building") +
+  tm_shape(test, name="Pilot Zones") +
+  tm_dots(col = "#3E4A89", size = 0.1) +
+  tm_layout(title = "Types of Buildings (from OSM) in Relation to Pilot Zones")
+
+tm+tm_view(set.view=14)
 ```
 
-
+One of the queries from OSM was from their dataset of types of buildings. This interactive map allows you to compare where the pilot zones are in relation to various types of buildings. For example, you can see large clusters of hospitals and universities in University City and "commercial" in the office district west of City Hall.
 
 
 # 3 Feature Engineering
 
 ## NN Road Classes
 
-```{r pressure, echo=FALSE}
+```{r pressure, fig.height=4, fig.width=8}
+# Set tmap mode to view for interactive maps
+tmap_mode("view")
 
-#Bookings
+# Plot the booking data and bike network
+tm <- tm_shape(curbs, name="Streets") +
+  tm_lines(col = "Road_Class", alpha = 0.5, legend.show=FALSE, id="strt_name.x", lwd=4) +
+  tm_shape(road_class, name="Pilot Zones") +
+  tm_dots(col = "#3E4A89", size = 0.1) +
+  tm_layout(title = "Street Classifications in Relation to Pilot Zones")
 
-
-bookings <- bookings %>%
-  group_by(SmartZoneName) %>%
-  summarize(geometry=first(geometry)) %>%
-  st_transform(2272)
-
-
-roads_class_1 <- filter(road_classes, CLASS == 1)
-roads_class_2 <- filter(road_classes, CLASS == 2)
-roads_class_3 <- filter(road_classes, CLASS == 3)
-roads_class_4 <- filter(road_classes, CLASS == 4)
-roads_class_5 <- filter(road_classes, CLASS == 5)
-
-#Nearest neighbor
-nn_function <- function(measureFrom,measureTo,k) {
-  measureFrom_Matrix <-
-    as.matrix(measureFrom)
-  measureTo_Matrix <-
-    as.matrix(measureTo)
-  nn <-   
-    get.knnx(measureTo, measureFrom, k)$nn.dist
-  output <-
-    as.data.frame(nn) %>%
-    rownames_to_column(var = "thisPoint") %>%
-    gather(points, point_distance, V1:ncol(.)) %>%
-    arrange(as.numeric(thisPoint)) %>%
-    group_by(thisPoint) %>%
-    summarize(pointDistance = mean(point_distance)) %>%
-    arrange(as.numeric(thisPoint)) %>% 
-    dplyr::select(-thisPoint) %>%
-    pull()
-  
-  return(output)  
-}
-
-all_curbs$dist_class_1 <- nn_function(st_coordinates(st_centroid(all_curbs)), st_coordinates(st_centroid(roads_class_1)), 1)
-all_curbs$dist_class_2 <- nn_function(st_coordinates(st_centroid(all_curbs)), st_coordinates(st_centroid(roads_class_2)), 1)
-all_curbs$dist_class_3 <- nn_function(st_coordinates(st_centroid(all_curbs)), st_coordinates(st_centroid(roads_class_3)), 1)
-all_curbs$dist_class_4 <- nn_function(st_coordinates(st_centroid(all_curbs)), st_coordinates(st_centroid(roads_class_4)), 1)
-all_curbs$dist_class_5 <- nn_function(st_coordinates(st_centroid(all_curbs)), st_coordinates(st_centroid(roads_class_5)), 1)
-
-
-
-#FOR pilot zones
-
-bookings$dist_class_1 <- nn_function(st_coordinates(st_centroid(bookings)), st_coordinates(st_centroid(roads_class_1)), 1)
-bookings$dist_class_2 <- nn_function(st_coordinates(st_centroid(bookings)), st_coordinates(st_centroid(roads_class_2)), 1)
-bookings$dist_class_3 <- nn_function(st_coordinates(st_centroid(bookings)), st_coordinates(st_centroid(roads_class_3)), 1)
-bookings$dist_class_4 <- nn_function(st_coordinates(st_centroid(bookings)), st_coordinates(st_centroid(roads_class_4)), 1)
-bookings$dist_class_5 <- nn_function(st_coordinates(st_centroid(bookings)), st_coordinates(st_centroid(roads_class_5)), 1)
-
-
-
+tm+tm_view(set.view=c(-75.16,39.95,16))
 
 
 ```
+
+Figuring out the type of street that each pilot zone on is important to understanding the type of traffic that uses that street.
+
+```{r road_NN, fig.height=4, fig.width=8}
+# Set tmap mode to view for interactive maps
+tmap_mode("view")
+
+# Plot the booking data and bike network
+tm <- tm_shape(curbs, name="Streets") +
+  tm_lines(col = "dist_class_2", alpha = 0.5, legend.show=FALSE, id="strt_name.x", lwd=4) +
+  tm_layout(title = "Distance from each Curb to Major Arterials")
+
+tm+tm_view(set.view=14)
+
+
+```
+
+Calculating the distance to each type of road classification can be a proxy for calculating full network relationships. We calculated the distance from each curb to each type of street, from highways all the way down to alleys.
 
 
 ## Recategorization
 ```{r pressure, echo=FALSE}
-#FOR PILOT ZONES
-
-
-retail <- new_cats$Retail
-quick_grocery <- new_cats$Quick.grocery
-dining <- new_cats$Dining
-housing <- new_cats$Housing
-commercial <- new_cats$Commercial
-industrial <- new_cats$Industrial
-civic <- new_cats$Civic
-school <- new_cats$School
-healthcare <- new_cats$Healthcare
-parking <- new_cats$Parking
-attraction <- new_cats$Attraction
-
-og_panel <- og_panel %>%
-  mutate(rowID = seq.int(nrow(.)))
-
-retail_only <- og_panel[ , names(og_panel) %in% attraction] %>%
-  cbind(og_panel$SmartZoneName) %>%
-  distinct(og_panel$SmartZoneName, .keep_all = TRUE)
-
-rownames(retail_only) <- retail_only$`og_panel$SmartZoneName`
-retail_only <- as.data.frame(t(retail_only)) %>%
-  filter(row_number() <= n()-1)
-
-stacked_df <- stack(retail_only)
-
-# Add a unique identifier to each row within each column
-stacked_df <- stacked_df %>%
-  group_by(ind) %>%
-  ungroup()
-
-# Sort the values within each column and keep only the top three values
-sorted_df <- stacked_df %>%
-  arrange(ind, values) %>%
-  group_by(ind) %>%
-  slice(1:3) %>%
-  mutate(rank = factor(row_number(), labels = c("attraction_nn1", "attraction_nn2", "attraction_nn3"))) %>%
-  ungroup()
-
-# Reshape the dataframe back to the original format
-final_df <- spread(sorted_df, rank, values)
-
-# retail_nn <- final_df
-# quick_grocery_nn<-final_df
-# dining_nn<-final_df
-# housing_nn<-final_df
-# commercial_nn<-final_df
-# industrial_nn<-final_df
-# civic<-final_df
-# school<-final_df
-# healthcare<-final_df
-# parking<-final_df
-# attraction<-final_df
-
-smart_zones <- as.data.frame(unique(og_panel$SmartZoneName)) %>%
-  rename(SmartZoneName = `unique(og_panel$SmartZoneName)`)
-
-df_list <- list(retail_nn, quick_grocery_nn, dining_nn, housing_nn, commercial_nn, industrial_nn,
-                civic, school, healthcare, parking, attraction)
-
-merged_df <- smart_zones
-for (df in df_list) {
-  merged_df <- merge(merged_df, df, by.x = "SmartZoneName", by.y="ind", all.x = TRUE)
-}
-
-
-first_panel <- first_panel[,c(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,156,157)]
-first_panel<-mutate(first_panel,
-                    log_events = log10(Total_Events))
-first_panel<-merge(first_panel, merged_df, by="SmartZoneName")
-
-
-
-
-zones$Bike_Network_dummy <- c(0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1)
-
-
-zone_road_class <- road_class %>%
-  group_by(SmartZoneName) %>%
-  summarize(CLASS_2 = first(CLASS_2))
-
-long <- pivot_longer(panel_0326, cols = c("Sun","Mon","Tue","Wed","Thu","Fri","Sat"), names_to="Day",values_to="bookings") %>%
-  dplyr::select(c("SmartZoneName","curb_zone_id","week","Day","bookings"))
-
-long$Weekend_dummy <- ifelse(long$Day %in% c("Sat", "Sun"), 1, 0)
-
-panel_0326 <- panel_0326[,c(1,23:55)]
-
-long <- panel_0326 %>%
-  distinct() %>%
-  merge(long, ., by="SmartZoneName", all.x=TRUE)
-
-long <- merge(long, zone_road_class, by="SmartZoneName")
-
-bikes <- dplyr::select(zones, c(SmartZoneName, Bike_Network_dummy))
-
-long <- merge(long, bikes, by="SmartZoneName")
-
-
-
-og_panel <- og_panel[,c(1,24:158)]
-
-og_panel <- og_panel %>%
-  distinct()
-
-long <- long[,c(1,2,3,4,5,6,40,41)]
-
-long <- merge(long, og_panel, by="SmartZoneName")
-
-
-#FOR ALL CURBS
-
-
-retail <- new_cats$Retail
-quick_grocery <- new_cats$Quick.grocery
-dining <- new_cats$Dining
-housing <- new_cats$Housing
-commercial <- new_cats$Commercial
-industrial <- new_cats$Industrial
-civic <- new_cats$Civic
-school <- new_cats$School
-healthcare <- new_cats$Healthcare
-parking <- new_cats$Parking
-attraction <- new_cats$Attraction
-
-og_panel <- panel %>%
-  mutate(rowID = seq.int(nrow(.)))
-
-retail_only <- og_panel[ , names(og_panel) %in% attraction] %>%
-  cbind(og_panel$TARGET_FID) %>%
-  distinct(og_panel$TARGET_FID, .keep_all = TRUE)
-
-rownames(retail_only) <- retail_only$`og_panel$TARGET_FID`
-retail_only <- as.data.frame(t(retail_only)) %>%
-  filter(row_number() <= n()-3)
-
-stacked_df <- stack(retail_only)
-
-# Add a unique identifier to each row within each column
-# stacked_df <- stacked_df %>%
-  # group_by(ind) %>%
-  # ungroup()
-
-# Sort the values within each column and keep only the top three values
-sorted_df <- stacked_df %>%
-  arrange(ind, values) %>%
-  group_by(ind) %>%
-  slice(1:3) %>%
-  mutate(rank = factor(row_number(), labels = c("attraction_nn1", "attraction_nn2", "attraction_nn3"))) %>%
-  ungroup()
-
-# Reshape the dataframe back to the original format
-final_df <- spread(sorted_df, rank, values)
-
-# retail_nn <- final_df
-# quick_grocery_nn<-final_df
-# dining_nn<-final_df
-# housing_nn<-final_df
-# commercial_nn<-final_df
-# industrial_nn<-final_df
-# civic<-final_df
-# school<-final_df
-# healthcare<-final_df
-# parking<-final_df
-# attraction<-final_df
-
-smart_zones <- panel[,c(1:28,164)]
-
-df_list <- list(retail_nn, quick_grocery_nn, dining_nn, housing_nn, commercial_nn, industrial_nn,
-                civic, school, healthcare, parking, attraction)
-
-merged_df2 <- smart_zones
-for (df in df_list) {
-  merged_df2 <- merge(merged_df2, df, by.x = "TARGET_FID", by.y="ind", all.x = TRUE)
-}
-
-
-first_panel <- first_panel[,c(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,156,157)]
-first_panel<-mutate(first_panel,
-                    log_events = log10(Total_Events))
-first_panel<-merge(first_panel, merged_df2, by="TARGET_FID")
-
+print(new_cats)
 
 ```
+
+With more than 250 unique variables collected from OSM, we streamlined the data into 11 simpler categories. This will be beneficial in eliminating the vagaries that come from some previous variables having very small groups, being very similar definitions to other variables, etc.
+
 
 ```{r pressure, echo=FALSE}
 panel_data_updated <- panel %>%
