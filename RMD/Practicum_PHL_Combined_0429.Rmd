@@ -338,6 +338,8 @@ utilization <- utilization %>%
 
 ```
 
+The charts provide a clear visualization of the data, highlighting a notably high number of violations. Furthermore, within the booking events, the predominant dwell time category is 20 minutes.
+
 ```{r echo=TRUE, fig.height=4, fig.width=4}
 # dwell time - min
 grid.arrange(
@@ -364,6 +366,9 @@ nrow=2)
 
 ```
 
+This chart indicates some curb zones with high vehicle counts in the '16-30' and '31-45' minute segments. There are also a noticeable number of violations in certain zones along Chestnut st and Sansom st.
+Most curb zones have a lot of violations, with some zones along chestnut street showing a high number of 'not_authorized' and 'overstayed' violations. It further shows that they are hotspots for both high vehicle turnover and parking violations, particularly for not being authorized and overstaying the allotted time.
+
 ```{r timeandviolation,echo=TRUE, fig.height=4, fig.width=6}
 # Availability of curb zones
 # vehicle count by curb zone and tiem segment
@@ -389,6 +394,8 @@ ggplot(violation_analysis, aes(x = OMFCurbZoneID, y = Count, fill = ViolationTyp
   labs(title = "Violation Type Distribution by Curb Zone", x = "Curb Zone ID", y = "Count")
 
 ```
+
+When visualized through plotting, it becomes evident that the majority of violations are unauthorized. A comparison of time segments with and without violations reveals an interesting pattern: Walnut Street and Sansom Street typically exhibit longer dwell times of 46-60 minutes, whereas Chestnut Street most commonly records dwell times of 16-30 minutes.
 
 ```{r dwelltime_withviolation,echo=TRUE, fig.height=4, fig.width=8}
 utilization_sf <- st_as_sf(utilization, wkt = "geometry", crs = 4326)
@@ -433,6 +440,9 @@ tm1
 ```
 
 ## Event Data Exploratory Analysis
+
+The event data further shows the distribution of events, dwell time across curb zones. As can see here, there are certain curbs which have significantly higher events, which are mainly on Chestnut Street and Sansom Street, both of them have longer operating hours, with chestnut st operating 7/24, Sansom Street weekdays 6am to 4pm. While Walnut Street only operates from 6am to 10 am on weekdays.
+
 ```{r id_clean, include=FALSE}
 event_export$curb_zone_id <- substr(event_export$curb_zone_id, nchar(event_export$curb_zone_id)-2, nchar(event_export$curb_zone_id))
 
@@ -492,6 +502,8 @@ plot3 <- ggplot(utilization_rates,aes(x=curb_zone_id,y=Average_Dwell_Time))+
 grid.arrange(plot1,plot2,plot3,nrow=3)
 ```
 
+By analyzing the event data over time, we observe fluctuating patterns in curb zone usage from October 2022 to April 2023, without a clear overall increasing or decreasing trend. Weekdays exhibit a higher frequency of loading events compared to weekends, with the most significant activity occurring during PM rush hours. This is followed by a notable amount of events in the overnight and Mid Day period. AM rush activities are the least frequent. The comparison between weekdays and weekends shows that the PM rush & Mid day hour peak is a distinct feature of the weekday pattern, whereas weekend events are more evenly distributed throughout the day, albeit at a lower volume.
+
 ```{r exploratory_serial, echo=TRUE, fig.height=6, fig.width=6}
 #peak parking times
 event_export$event_time_start <- as.POSIXct(event_export$event_time_start, format = "%Y-%m-%d %H:%M:%S")
@@ -547,6 +559,8 @@ ggplot(peak_times,aes(x=Hour,y=Events))+
   correlation <- cor(event_export$dwell_time_minutes,event_export$vehicle_length)
 ```
 
+The parking duration chart shows common parking times at 20, 80, and 120 minutes, with 20 minutes being the most frequent. The vehicle type chart indicates that cars are the most common, with far fewer events for trucks, vans, and freight vehicles.
+
 ```{r exploratory_operation, echo=TRUE, fig.height=4, fig.width=4}
 #parking duration distribution
 
@@ -567,6 +581,8 @@ ggplot(vehicle_type,aes(x=vehicle_type,y=Total_Events))+
   theme_minimal(),
 nrow=2)
 ```
+
+The total bookings by curb are presented below. Notably, 1000 Chestnut St and 1200 Sansom Street register significantly higher bookings, likely attributable to their extended operating hours throughout the week. Additionally, there is a clear trend where the segments along 8-10th St and 12-13th St experience higher event frequencies within each horizontal street.
 
 ```{r echo=TRUE, fig.height=4, fig.width=8}
 curb_bookings <- panel %>%
@@ -606,8 +622,9 @@ tm2
 
 ## Road Network Exploratory Analysis 
 
-
 ### Street
+
+To conduct the road network analysis, we got the data from the complete street dataset from Open Data Philly. Then, we filtered the dataset by our streets of interests, Chestnut, Sansom, and Walnut street, and include their characteristics for further analysis.
 
 
 ```{r cars, include=FALSE}
@@ -639,7 +656,9 @@ street_summary <- filtered_streets %>%
 
 ```
 
-```{r cars, echo=TRUE, fig.height=4, fig.width=4}
+The bar plot shows the number of booking events on each of the streets. It shows that Chestnut street has a higher activity compared to Sansom and Walnut in terms of bookings. The reason is due to the fact that the operating hours of the loading zones on Chestnut Street is longer than the other two streets. A boxplot shows the distribution of booking events throughout the day, showing peak booking hours for each street.
+
+```{r cars1, echo=TRUE, fig.height=4, fig.width=4}
 # Filter booking data for the streets of interest
 booking_data_filtered <- booking_data %>% 
   filter(grepl(paste(streets_of_interest, collapse="|"), StreetName, ignore.case = TRUE))
@@ -660,7 +679,9 @@ ggplot(booking_data_filtered, aes(x = StreetName, y = TimeRequestedHour)) +
 
 ```
 
-```{r cars, echo=TRUE, fig.height=4, fig.width=6}
+In this chart, events are summarized by day of the week for each street to identify daily traffic patterns. It shows that the Chestnut Street has the highest booking events than the other two streets throughout the week, and has highest booking events on Thursday.
+
+```{r cars2, echo=TRUE, fig.height=4, fig.width=6}
 # Filter for streets of interest if not already done
 streets_of_interest <- c("Chestnut", "Walnut", "Sansom")
 booking_data_filtered <- booking_data %>%
@@ -690,7 +711,9 @@ ggplot(booking_summary_expanded, aes(x = DayOfWeek, y = TotalEvents, fill = Stre
 
 ### Bike
 
-```{r cars, fig.height=4, fig.width=8}
+The interactive map shows the booking locations and bike networks around. We can tell that most of the curb size loading zones are located on bike networks, which leads to potential conflicts between cyclists and vehicles and impacts on the traffic flow. This is something planners should take into consideration when building new curb zones.
+
+```{r bike, fig.height=4, fig.width=8}
 # Set tmap mode to view for interactive maps
 tmap_mode("view")
 
@@ -704,7 +727,9 @@ tm3
 
 ```
 
-```{r cars, echo=TRUE, fig.height=2, fig.width=2}
+This bar chart visualizes the number of booking events on bike network streets, highlighted by whether they occur on the bike network.
+
+```{r bike_network, echo=TRUE, fig.height=2, fig.width=2}
 streets_of_interest <- c("Chestnut", "Walnut", "Sansom")
 
 # Assuming booking_data has a column 'StreetName' with street names
@@ -822,7 +847,7 @@ The positive relationships are associated with clinics and community centers.
 
 ### OSM Queries
 
-```{r clear NN table, fig.height=4, fig.width=8}
+```{r OSM, fig.height=4, fig.width=8}
 # Set tmap mode to view for interactive maps
 tmap_mode("view")
 
@@ -845,7 +870,7 @@ One of the queries from OSM was from their dataset of types of buildings. This i
 
 Figuring out the type of street that each pilot zone on is important to understanding the type of traffic that uses that street.
 
-```{r pressure, fig.height=4, fig.width=8}
+```{r st_classification, fig.height=4, fig.width=8}
 # Set tmap mode to view for interactive maps
 tmap_mode("view")
 
@@ -934,30 +959,35 @@ ggplot(significant_vars, aes(x = reorder(Variable, pValue_neg_log), y = pValue_n
 ```
 
 
-```{r echo=TRUE, fig.height=4, fig.width=4}
+```{r coorelation matrix, eval=FALSE, fig.height=4, fig.width=4, include=FALSE}
 # Assuming panel is your dataset and has been appropriately pre-processed
 model_info_sub <- panel %>% 
-  select(-SmartZoneName, -day)
+  select(-SmartZoneName, -day) %>%
+  mutate(across(where(is.numeric), as.numeric))%>%
+  select_if(~ is.numeric(.))  # Ensuring only numeric data is retained
 
+# Calculate correlation matrix
+cor_matrix <- cor(model_info_sub, use = "complete.obs")
 
-# Plot the correlation matrix
+# Assuming cor_pmat is a function you've defined or it's part of your libraries that returns p-values
+# Make sure it's correctly receiving a numeric matrix
+p_matrix <- cor_pmat(model_info_sub)
+
 ggcorrplot(
-  round(cor(model_info_sub %>% st_drop_geometry()), 1), 
-  p.mat = cor_pmat(model_info_sub), # Changed df to model_info_sub
-  type = "lower",  # Show only the lower triangle
-  insig = "blank",  # Don't show insignificant correlations
-  #lab = TRUE,  # Show correlation coefficients in the plot
-  #lab_size = 3.5,  # Adjust label size
-  colors = c("#440154", "white", "#35B779"),  # Use a high-contrast color palette
-  tl.cex = 8,  # Text size for variable names
-  tl.col = "black",  # Text color for variable names
-  tl.srt = 45  # Text rotation for variable names
-) + 
+  cor_matrix,
+  p.mat = p_matrix,
+  type = "lower",
+  insig = "blank",
+  colors = c("#440154", "white", "#35B779"),
+  tl.cex = 8,
+  tl.col = "black",
+  tl.srt = 45
+) +
   labs(title = 'Correlation across all variables') +
   theme_minimal() +
   theme(
-    plot.title = element_text(hjust = 0.5),  # Center the title
-    axis.text.x = element_text(angle = 45, hjust = 1)  # Tilt x-axis labels for better visibility
+    plot.title = element_text(hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1)
   )
 
 ```
@@ -1024,8 +1054,9 @@ saveRDS(best_params, "/Users/lingchen/Documents/Practicum/Practicum_Philly_2024/
 saveRDS(rf_workflow, "/Users/lingchen/Documents/Practicum/Practicum_Philly_2024/Data/rf_workflow.rds")
 ```
 
-```{r}
+```{r include=FALSE}
 # load parameters of random forest model
+setwd("/Users/lingchen/Documents/Practicum/Practicum_Philly_2024/Data")
 best_params <- readRDS("best_rf_model.rds")
 rf_workflow <- readRDS("rf_workflow.rds")
 ```
@@ -1112,9 +1143,9 @@ test_set_simple %>%
 
 ### Space-Time Error Evaluation
 
-This map provides a spatial overview of the model’s performance across different streets, where larger circles with more bright colors indicate a higher MAPE at that curb, suggesting that the model's predictions are less accurate on Walnut St, while Chestnut & Sansom St has a relatively better performance.
+This map provides a spatial overview of the model’s performance across different streets, where larger circles with more bright colors indicate a higher MAE at that curb, suggesting that the model's predictions are less accurate on Chestnut St and Sansom St, while Walnut St has a relatively better performance.
 
-```{r echo=TRUE, fig.height=4, fig.width=8}
+```{r eval=FALSE, include=FALSE}
 # Now group by SmartZoneName and summarize the residuals
 
 error_analysis_curb <- test_set_simple %>%
@@ -1151,6 +1182,13 @@ geo_sf <- st_as_sf(geo, geometry = do.call("st_sfc", geo_points), crs = 4326) %>
 error_analysis_curb <- geo_sf %>%
   left_join(error_analysis_curb, by=c("SmartZoneName"))
 
+st_write(error_analysis_curb, "./error_analysis_curb.geojson")
+```
+
+```{r echo=TRUE, fig.height=4, fig.width=8}
+setwd("/Users/lingchen/Documents/Practicum/Practicum_Philly_2024/Data")
+error_analysis_curb <- st_read("./error_analysis_curb.geojson")
+
 # Set tmap mode to view for interactive maps
 tmap_mode("view")
 
@@ -1160,7 +1198,7 @@ tm7 <- tm_shape(error_analysis_curb) +
 tm7
 ```
 
-From the chart, the high error in conjunction with high data counts suggest a systematic issue with the model especially on Friday and Tuesday, rather than a random fluctuation. As such, there's need to further check the weekly patterns or specific events impacting the model performance. While those low error points with low data counts, like Monday, demonstrate its good performance.
+From the chart, the high error in conjunction with high data counts suggest a systematic issue with the model especially on Tuesday and Thursday, rather than a random fluctuation. As such, there's need to further check the weekly patterns or specific events impacting the model performance. While those low error points with low data counts, like Monday, demonstrate its good performance.
 
 ```{r echo=TRUE, fig.height=4, fig.width=6}
 
@@ -1213,7 +1251,7 @@ ggplot(error_analysis_day, aes(x = factor(day), y = MAE)) +
 
 ```
 
-Overall, the model seems to be more accurate and precise for lower values of bookings and shows some divergence from the observed data at higher booking values. The similarity of the trend lines in five panels suggests the model performs consistently across weekdays and weekends. However, the model doesn't seem to be able to catch high values within the weekdays.
+Overall, the model seems to be more accurate and precise for lower values of bookings and shows some divergence from the observed data at higher booking values. The similarity of the trend lines in five panels suggests the model performs consistently across weekdays. However, the model doesn't seem to be able to catch high values within the weekdays. Specifically, ⁠Monday and Friday show good prediction accuracy, others (particularly Wednesday) show significant prediction errors
 
 ```{r echo=TRUE, fig.height=2, fig.width=8}
 
@@ -1238,6 +1276,8 @@ ggplot() +
 ```
 
 ### Binary Prediction Performance
+
+While model is not good at capturing number of events larger than 1, it is still 75% accurate at predicting whether a curb will be occupied or not. The ROC curve here further illustrates its good performance. Specifically, the accuracy, sensitivity, and positive predictive value are relatively high, but the model struggles with specificity and negative predictive value, suggesting it's better at predicting positives than negatives.
 
 ```{r echo=TRUE, fig.height=2, fig.width=2}
 binary <- test_set_simple%>%
@@ -1283,7 +1323,7 @@ print(paste("Best Threshold: ", best_threshold))
 
 The cross-validation chart indicates that for a random forest model subjected to a 50-fold cross-validation process, the Goodness of Fit metrics—MAE, RMSE, and Rsquared—are closely clustered around their respective means. Specifically, the model's predictions were off by over 0.47(MAE), whereas the RMSE's central clustering suggests a similarly consistent average error magnitude but considering the squaring of the errors, which gives more weight to larger errors. The Rsquared values around 0.23 imply that the model explains only 23% of the variability in the data.It implies that the model is not capturing the complexity of the data.
 
-```{r cv, echo=TRUE, fig.height=4, fig.width=8}
+```{r cv_run, eval=FALSE, include=FALSE}
 fitControl <- trainControl(method = "cv", number = 50)
 set.seed(825)
 
@@ -1297,6 +1337,13 @@ rf.cv <- train(Events ~ ., data = train_set_simple,
                maxnodes = 20)
 
 rf.cv
+
+saveRDS(rf.cv, file = "rf_cv_model.rds")
+```
+
+```{r cv, echo=TRUE, fig.height=4, fig.width=8}
+setwd("/Users/lingchen/Documents/Practicum/Practicum_Philly_2024/Data")
+rf.cv <- readRDS("rf_cv_model.rds")
 
 dplyr::select(rf.cv$resample, -Resample) %>%
   gather(metric, value) %>%
@@ -1314,7 +1361,7 @@ dplyr::select(rf.cv$resample, -Resample) %>%
 
 # 5 Prediction on all curbs
 
-```{r prediction}
+```{r prediction, include=FALSE}
 
 all_curbs <- all_curbs %>%
   select(-TARGET_FID, -end_st_.x, -strt_s_.x, -strt_nm.x, -OID_, -Join_Count, -categry, -curb_id, -currncy, -dstnc_n_, -dstnc_s_, -end_st_.y, -mx_drt_, -price, -rgltn_t, -sd_f_st, -smrt_z_, -strt_s_.y, -strt_nm.y, -time_zn, -vhcl_ty, -Shape_Length, -geometry) %>%
@@ -1354,6 +1401,8 @@ all_predictions <- all_predictions %>%
 ```{r export_result, include=FALSE}
 all_curbs_2 <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/all_curbs_0415.geojson")
 
+all_curbs_sf <- st_as_sf(all_curbs_2,wkt="geometry")
+all_predictions_sf <- st_as_sf(all_predictions,wkt="geometry")
 
 # 转换 geometry 列为文本
 all_predictions_sf$wkt <- st_as_text(all_predictions_sf$geometry)
@@ -1364,20 +1413,20 @@ st_geometry(all_predictions_sf) <- NULL
 st_geometry(all_curbs_sf) <- NULL
 
 # 执行 left_join
-all_results <- left_join(all_predictions_sf, all_curbs_sf[, c("wkt", "curb_id")], by = "wkt")
+all_results <- left_join(all_predictions_sf, all_curbs_sf[, c("wkt", "curb_id","TARGET_FID","OID_")], by = "wkt")
 
 # 重新将 wkt 转换为几何对象，并设定为 sf 对象的几何列
 all_results$geometry <- st_as_sfc(all_results$wkt)
 all_results <- st_sf(all_results)
 all_results <- all_results %>% select(-wkt)  # 移除临时的 wkt 列
 
-write_csv(all_results,"./allcurbs_detailed_0505.csv")
+#write_csv(all_results,"./allcurbs_detailed_0505.csv")
 ```
 
 ```{r simplified_panel, include=FALSE}
 
 all_results_simplified <- all_results %>%
-  select(day,week,curb_id,Prediction)
+  select(day,week,curb_id,TARGET_FID, OID_,Prediction)
 all_results_simplified$Prediction <- round(all_results_simplified$Prediction,3)
 
 #date
@@ -1400,19 +1449,20 @@ all_results_simplified$date <- start_of_week + days(match(all_results_simplified
 all_results_simplified <- all_results_simplified %>%
   mutate(Prediction_binary = ifelse(Prediction > 0.5, 1, 0))
 
-write_csv(all_results_simplified,"./allcurbs_simplified_0505.csv")
-
+#write_csv(all_results_simplified,"./allcurbs_simplified_0505.csv")
+st_write(all_results_simplified,"./allcurbs_simplified_0505.geojson")
 
 #EDA export
 all_curbs_export <- all_curbs_2 %>%
   select(-OID_, -Join_Count,  -currncy, -dstnc_n_, -dstnc_s_, -end_st_.y, -mx_drt_,-sd_f_st, -smrt_z_, -strt_s_.y, -strt_nm.y, -time_zn, -vhcl_ty, -Shape_Length) %>%
   rename(Road_class = Road_Class)
 
-write_csv(all_curbs_export,"./allcurbs_EDA.csv")
+#write_csv(all_curbs_export,"./allcurbs_EDA.csv")
 
 ```
 
 ```{r allcurbs_pred, echo=TRUE, fig.height=4, fig.width=8}
+
 all_results_by_curb <- all_results_simplified %>%
   group_by(curb_id) %>%
   summarize(Prediction_Sum = sum(Prediction, na.rm = TRUE),
@@ -1421,9 +1471,10 @@ all_results_by_curb <- all_results_simplified %>%
 tmap_mode("view")
 
 tm8 <- tm_shape(all_results_by_curb) +
-  tm_lines(col = "Prediction_Sum", alpha = 0.5, legend.show=FALSE, id="strt_name.x", lwd=4) +
+  tm_lines(col = "Prediction_binary_Sum", alpha = 0.5, legend.show=FALSE, id="curb_id", lwd=4) +
   tm_layout(title = "Prediction by Curbs")
 
-tm8+tm_view(set.view=c(-75.16,39.95,16))
+#tm8+tm_view(set.view=c(-75.16,39.95,16))
 
 ```
+
