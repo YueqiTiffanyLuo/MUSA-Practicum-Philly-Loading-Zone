@@ -1,0 +1,1399 @@
+---
+title: "Philadelphia Smart Loading Zones: Analysis and Demand Prediction"
+author: "Ling Chen, Samriddhi Khare, Michael Dunst, Tiffany Luo, Shengqian Wang"
+date: "2024-05-05"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+    number_sections: yes
+    theme: sandstone
+    highlight: tango
+    fig_retina: 2
+    self_contained: no
+    dependencies:
+      - name: htmlcompressor
+        version: "0.1"
+        src: "path/to/htmlcompressor"
+        script: "htmlcompressor.js"
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+
+```{r setup, include=FALSE}
+library(htmltools)
+knitr::opts_chunk$set(echo = TRUE,warning =FALSE, message = FALSE,fig.path = "figures/")
+```
+
+
+# Introduction
+
+In October 2022, the City of Philadelphia introduced a pilot program that tested 20 paid, curbside loading spaces for delivery drivers in Center City, known as “smart loading zones.” 
+
+A conventional loading zone is a dedicated space on the street within the parking lane
+that gives vehicles space to conduct loading and unloading activities. Parking is not
+permitted in a loading zone, and there is usually a fixed time limit for its use by a given
+vehicle. The City posts rules for using a loading zone on signages next to the loading
+space and expects the users to read the signages before using the space.
+
+Like a conventional loading zone, a Smart Loading Zone is also a dedicated space on
+the street to conduct loading and unloading activities. However, the availability, and regulations for Smart Loading Zones are digitally codified and the zones are bookable through the Pebble Driver app. This digitization of physical space will allow delivery companies to reserve spaces and pay for only the time they use. Drivers and delivery companies were able to reserve spaces and times through a smartphone app. 
+
+This pilot was conducted for six months from October 2022 to April 2023. 
+
+## Project Site
+
+![Project Site and Operating Hours](https://www.phila.gov/media/20220930084427/Smart-Loading-Zones-map.png)
+
+
+## Scope
+
+The pilot generated data about individual vehicles parking in each zone. The increase in home delivery and on-demand logistics has created a need for new tools to decongest the right-of-way. Our project explores the potential of opening new smart loading zones in the city. Using pilot data, we created a predictive model that can be used to estimate demand at new locations.
+
+Through an iterative process, our team has meticulously crafted a high-performing model leveraging a wealth of data provided by the client regarding bookings made through the Smart Loading Zones app. Additionally, we have integrated external data sources such as OpenStreetMap and census data to enrich our model's insights and accuracy. This iterative approach has allowed us to continuously refine and enhance our model, ensuring that it effectively predicts and optimizes Smart Loading Zone demand. 
+
+
+
+# Data Manipulation and Visualization
+
+Understanding the demand for Smart Loading Zones involves considering various factors that influence a driver's need to stop. Firstly, it's essential to assess the distance to the nearest location of various land uses, as this can indicate potential loading or unloading requirements. Secondly, analyzing the volume and purpose of vehicles using the road provides insight into the overall traffic flow and potential demand for loading zones. Official road classifications offer additional context regarding road infrastructure and usage patterns. Moreover, considering factors such as rush hour versus off-peak times helps in identifying peak demand periods. By segmenting bookings into different times of the day, the model can better anticipate and accommodate varying demand levels, optimizing the utilization of Smart Loading Zones effectively.
+
+
+```{r , include=FALSE}
+
+# Load some libraries
+
+library(tidyverse)
+library(tidycensus)
+library(sf)
+library(spdep)
+library(caret)
+library(ckanr)
+library(FNN)
+library(grid)
+library(gridExtra)
+library(ggcorrplot) # plot correlation plot
+library(corrr)      # another way to plot correlation plot
+library(kableExtra)
+library(broom)
+library(tufte)
+library(rmarkdown)
+library(hexbin)
+library(viridis)
+library(cbsodataR)
+library(jtools)     # for regression model plots
+library(ggstance) # to support jtools plots
+library(ggpubr)    # plotting R^2 value on ggplot point scatter
+library(broom.mixed) # needed for effects plots
+library(stargazer)
+library(jsonlite)
+library(ggplot2)
+library(tmap)
+library(tmaptools)
+library(leaflet)
+library(raster)
+library(RColorBrewer)
+library(mapview)
+library(leaflet)
+library(plotly)
+library(ggspatial)
+library(openxlsx)
+library(lubridate)
+library(dplyr)
+library(tidyr)
+library(reshape2)
+library(riem)
+library(jsonlite)
+library(readr)
+library(httr)
+library(tidymodels)
+library(randomForest)
+library(vip)
+library(pROC)
+library(ISOweek)
+#library(rjson)
+
+# functions and data directory
+
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+
+palette2 <- c('#3E4A89','#1F9E89')
+palette4 <- c('#3E4A89','#1F9E89','#35B779','#B4DE2C')
+palette5 <- c('#440154','#3E4A89','#1F9E89','#35B779','#B4DE2C')
+palette6 <- c('#440154','#3E4A89','#1F9E89','#35B779','#B4DE2C','#FDE725')
+palette10 <- c('#440154','#482777','#3E4A89','#31688E','#26828E','#1F9E89','#35B779','#6DCD59','#B4DE2C','#FDE725')
+
+```
+
+```{r input data, include=FALSE}
+
+
+coords_raw <- read.csv("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/Old_Data_for_Testing/zoneCoords.csv")
+
+# split coords
+coords_split <- strsplit(coords_raw$coords, ",")
+coords_raw$latitude <- as.numeric(sapply(coords_split, `[`, 1))
+coords_raw$longitude <- as.numeric(sapply(coords_split, `[`, 2))
+
+# create coords shapefile
+coords <- st_as_sf(coords_raw, coords = c("longitude", "latitude"), crs = 'ESRI:102729')
+
+
+# load booking data
+
+booking_data <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone//main/Data%20Used/Booking%20Data_cleaned.geojson")
+
+# load CDS event data
+setwd("/Users/lingchen/Documents/Practicum/Practicum_Philly_2024/Data")
+event_export <- read.csv("./events_export_CDS.csv")
+error_analysis_curb <- st_read("./error_analysis_curb.geojson")
+#event_export <- read.csv("https://github.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/blob/main/Data%20Used/Ling/events_export_CDS.csv")
+
+# load regulation geojson
+regulations <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/resmartloadingzones/regulations.geojson")
+
+
+# Road Data
+
+completestreets <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/FilteredStreets.geojson")
+
+bike_network <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Bike_Network.geojson")
+
+simple_panel <- read_csv("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/03_31_panel.csv")
+
+
+test <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/zones_nn_3.geojson")
+
+
+#Bookings
+curbs <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/all_curbs_0415.geojson")
+offices <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/offices.geojson")
+
+
+sf_amenities <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/amenities.geojson")%>%
+  st_transform(2272)
+
+sf_buildings <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/buildings.geojson")%>%
+  st_transform(2272)
+
+sf_landuse <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/landuse.geojson")
+
+sf_shops <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/shops.geojson")%>%
+   st_transform(2272) %>%
+  mutate(shop = ifelse(shop == "coffee", "beverages", shop)) %>%
+  mutate(shop = ifelse(shop == "general", "convenience", shop))
+
+
+sf_offices <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/offices.geojson")%>%
+  st_transform(2272)
+
+
+bookings <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone//main/Data%20Used/Booking%20Data_cleaned.geojson") %>%
+  st_transform(2272)
+
+# Write road class to GeoJSON file
+
+new_cats <- read.csv("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/new_categories.csv")
+
+#merged_df <- read.csv("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/zones_with_simple_nns.csv")
+
+#first_panel <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/finalpanel.geojson")
+
+zones <- read.csv("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/zones_with_simple_nns.csv")
+
+
+road_class <- read.csv("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/first_panel.csv")
+
+new_cats <- read.csv("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/new_categories.csv")
+
+
+#merged_df2 <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/all_curbs_0415.geojson")
+
+panel <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/04_29_reduced_panel.geojson")
+geo <- read.csv("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/geometry.csv")
+
+add <- read_sf("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/add.geojson")
+road_class <- read_sf("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/bookings_road_class_nn.geojson")
+
+all_curbs <- read_sf("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/all_curbs_0415.geojson")
+all_curbs_2 <- st_read("https://raw.githubusercontent.com/YueqiTiffanyLuo/MUSA-Practicum-Philly-Loading-Zone/main/Data%20Used/Ling/all_curbs_0415.geojson")
+
+```
+
+## Booking Data Exploratory Analysis
+
+The booking data encompasses both the quantity of reservations facilitated through the application and instances of violations, where drivers utilize the space without prior booking. On the other hand, curb data includes a comprehensive inventory of point and linear assets positioned along each curb, ranging from trees to stop signs, contributing to the overall streetscape and functionality. However, it's crucial to acknowledge the underrepresentation apparent within the data, reflecting a significant portion of users who opt for conventional methods rather than utilizing the application. This tendency to adhere to traditional practices highlights the necessity for further engagement efforts to encourage broader adoption and participation in the Smart Loading Zone ecosystem.
+
+```{r utilization, echo=TRUE, message=FALSE}
+utilization <- booking_data %>%
+  dplyr::select(SmartZoneName,OMFCurbZoneID,EventType,ViolationType,VehicleType,TimeRequestedHour,Amount,geometry)
+
+utilization$OMFCurbZoneID <- substr(utilization$OMFCurbZoneID, nchar(utilization$OMFCurbZoneID)-2, nchar(utilization$OMFCurbZoneID))
+
+curb_geom<- utilization %>%
+  select(SmartZoneName,OMFCurbZoneID,geometry) %>%
+  group_by(SmartZoneName,OMFCurbZoneID) %>%
+  summarise(Events=n()) 
+
+```
+
+```{r timesegment, echo=TRUE}
+utilization$DwellTimeMinutes <- utilization$TimeRequestedHour * 60
+
+utilization$TimeSegment <- cut(utilization$DwellTimeMinutes,
+                        breaks = c(0, 5, 15, 30, 45, 61),
+                        labels = c("0-5", "6-15", "16-30", "31-45","46-60"),
+                        right = FALSE)
+
+utilization <- utilization %>%
+  mutate(TimeSegment = as.character(TimeSegment), # Convert factor to character
+         TimeSegment = replace_na(TimeSegment, "violation")) # Replace NA with "violation"
+
+utilization$TimeSegment <- factor(utilization$TimeSegment)
+
+utilization <- utilization %>%
+  mutate(ViolationType = ifelse(ViolationType == "", "booking", ViolationType)) 
+
+```
+
+The charts provide a clear visualization of the data, highlighting a notably high number of violations. Furthermore, within the booking events, the predominant dwell time category is 20 minutes.
+
+```{r echo=TRUE, fig.height=6, fig.width=6}
+# dwell time - min
+grid.arrange(
+ggplot(utilization, aes(x = DwellTimeMinutes)) + geom_histogram(bins = 20, fill = "#26828E", color = "white") +
+  labs(title = "Dwell Time Distribution", x = "Dwell Time (minutes)", y = "Frequency")+
+  theme_minimal(),
+
+ggplot(utilization, aes(x = TimeSegment)) +
+  geom_bar(fill = "#26828E", color = "white") + 
+  theme_minimal() + 
+  labs(title = "Counts by Time Segment", x = "Time Segment", y = "Count") + 
+  theme_minimal(),
+
+# vehicle type:commercial/medium commercial/other/truck
+ggplot(utilization, aes(x = VehicleType)) + geom_bar(fill = "#26828E") +
+  labs(title = "Vehicle Type Distribution", x = "Vehicle Type", y = "Count")+
+  theme_minimal(),
+
+# vehicle type: car/freight/truck/van
+ggplot(utilization, aes(x = EventType)) + geom_bar(fill = "#26828E") +
+  labs(title = "Event Type Distribution", x = "Event Type", y = "Count")+
+  theme_minimal(),
+nrow=2)
+
+```
+
+This chart indicates some curb zones with high vehicle counts in the '16-30' and '31-45' minute segments. There are also a noticeable number of violations in certain zones along Chestnut st and Sansom st.
+Most curb zones have a lot of violations, with some zones along chestnut street showing a high number of 'not_authorized' and 'overstayed' violations. It further shows that they are hotspots for both high vehicle turnover and parking violations, particularly for not being authorized and overstaying the allotted time.
+
+```{r timeandviolation, echo=TRUE, fig.height=4, fig.width=8, message=FALSE}
+# Availability of curb zones
+# vehicle count by curb zone and tiem segment
+availability_analysis <- utilization %>%
+  group_by(OMFCurbZoneID, TimeSegment) %>%
+  summarise(VehicleCount = n())
+
+ggplot(availability_analysis, aes(x = OMFCurbZoneID, y = VehicleCount, fill = TimeSegment)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_fill_manual(values = palette6)+
+  labs(title = "Vehicle Count by Curb Zone and Time Segment", x = "Curb Zone ID", y = "Vehicle Count")
+
+# violation type distribution by curb zone
+violation_analysis <- utilization %>%
+  group_by(OMFCurbZoneID, ViolationType) %>%
+  summarise(Count = n())
+
+ggplot(violation_analysis, aes(x = OMFCurbZoneID, y = Count, fill = ViolationType)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_fill_manual(values = palette6)+
+  labs(title = "Violation Type Distribution by Curb Zone", x = "Curb Zone ID", y = "Count")
+
+```
+
+When visualized through plotting, it becomes evident that the majority of violations are unauthorized. A comparison of time segments with and without violations reveals an interesting pattern: Walnut Street and Sansom Street typically exhibit longer dwell times of 46-60 minutes, whereas Chestnut Street most commonly records dwell times of 16-30 minutes.
+
+```{r dwelltime_withviolation, echo=TRUE, fig.height=4, fig.width=8, message=FALSE}
+utilization_sf <- st_as_sf(utilization, wkt = "geometry", crs = 4326)
+
+# Assuming your data is in a dataframe called 'data'
+# Calculate the most frequent TimeSegment for each SmartZoneName
+most_freq_time_segments <- utilization %>%
+  count(SmartZoneName, TimeSegment) %>%
+  group_by(SmartZoneName) %>%
+  filter(n == max(n)) %>%
+  slice(1) %>% # In case there are ties, take the first
+  ungroup()
+
+# Set tmap mode to view for interactive maps
+tmap_mode("view")
+
+# Visualize using tmap
+tm0 <- tm_shape(most_freq_time_segments) +
+  tm_symbols(col = "TimeSegment", size = 10, border.col = "black", palette = "viridis",
+             title.col = "Most Frequent TimeSegment") +
+  tm_layout(title = "Most Frequent TimeSegments by SmartZoneCurb")
+
+tm0
+```
+
+```{r dwelltime_withoutviolation, echo=TRUE, fig.height=4, fig.width=8, message=FALSE}
+most_freq_time_withoutviolation <- utilization %>%
+  filter(TimeSegment != "violation") %>%
+  count(SmartZoneName, TimeSegment) %>%
+  group_by(SmartZoneName) %>%
+  filter(n == max(n)) %>%
+  slice(1) %>% # In case there are ties, take the first
+  ungroup()
+
+tmap_mode("view")
+tm1 <- tm_shape(most_freq_time_withoutviolation) +
+  tm_symbols(col = "TimeSegment", size = 10, border.col = "black", palette = "viridis",
+             title.col = "Most Frequent TimeSegment") +
+  tm_layout(title = "Most Frequent TimeSegments by SmartZoneCurb(excluding violations)")
+
+tm1 
+```
+
+## Event Data Exploratory Analysis
+
+The event data further shows the distribution of events, dwell time across curb zones. As can see here, there are certain curbs which have significantly higher events, which are mainly on Chestnut Street and Sansom Street, both of them have longer operating hours, with chestnut st operating 7/24, Sansom Street weekdays 6am to 4pm. While Walnut Street only operates from 6am to 10 am on weekdays.
+
+```{r id_clean, include=FALSE}
+event_export$curb_zone_id <- substr(event_export$curb_zone_id, nchar(event_export$curb_zone_id)-2, nchar(event_export$curb_zone_id))
+
+event_export$event_session_id <- substr(event_export$event_session_id, nchar(event_export$event_session_id)-3, nchar(event_export$event_session_id))
+```
+
+```{r time_clean, message=FALSE, include=FALSE}
+# Correctly convert the timestamps from milliseconds to POSIXct
+event_export$event_time_start = as.POSIXct(event_export$event_time_start / 1000, origin="1970-01-01", tz="UTC")
+event_export$event_time_end = as.POSIXct(event_export$event_time_end / 1000, origin="1970-01-01", tz="UTC")
+
+# Calculate dwell time in seconds
+event_export$dwell_time = difftime(event_export$event_time_end, event_export$event_time_start)
+
+# Convert the dwell time to minutes
+event_export$dwell_time_minutes = as.numeric(event_export$dwell_time, units = "mins")
+event_export$dwell_time_minutes <- round(event_export$dwell_time_minutes,2)
+
+# Add time series data
+event_export$event_time_start <- as.POSIXct(event_export$event_time_start, format = "%Y-%m-%d %H:%M:%S")
+event_export <- event_export%>%
+  mutate(Date=as.Date(event_time_start),
+         week=week(Date),
+         dotw=wday(Date,label=TRUE),
+         interval60=floor_date(event_time_start,unit ="hour"),
+         interval15=floor_date(event_time_start,unit="15 mins"),
+         time_of_day=case_when(hour(interval60)<6 | hour(interval60)>19 ~ "overnight",
+                               hour(interval60)>=6 & hour(interval60)<11 ~ "AM_Rush",
+                               hour(interval60)>=11 & hour(interval60)<15 ~ "Mid_Day",
+                               hour(interval60)>=15 & hour(interval60)<=19 ~ "PM_Rush"),
+         weekend=ifelse(dotw %in% c('Sun','Sat'),'Weekend','Weekday'))
+
+head(event_export)
+```
+
+```{r exploratory_analysis_curb, fig.height=6, fig.width=8, message=FALSE}
+#curb utilization rates
+utilization_rates <- event_export %>%
+  group_by(curb_zone_id) %>%
+  summarise(Total_Events = n(),
+            Total_Dwell_Time = sum(dwell_time_minutes),
+            Average_Dwell_Time = mean(dwell_time_minutes))
+
+plot1 <- ggplot(utilization_rates,aes(x=curb_zone_id,y=Total_Events))+
+  geom_bar(stat="identity",fill="#3E4A89")+
+  theme_minimal()+
+  labs(x="Curb Zone ID", y = "Total Events", title="Total Events by Curb Zone")
+plot2 <- ggplot(utilization_rates,aes(x=curb_zone_id,y=Total_Dwell_Time))+
+  geom_bar(stat="identity",fill="#26828E")+
+  theme_minimal()+
+  labs(x="Curb Zone ID", y = "Total Events", title="Total Dwell Time by Curb Zone")
+plot3 <- ggplot(utilization_rates,aes(x=curb_zone_id,y=Average_Dwell_Time))+
+  geom_bar(stat="identity",fill="#1F9E89")+
+  theme_minimal()+
+  labs(x="Curb Zone ID", y = "Average Dwell Time", title="Average Dwell Time by Curb Zone")
+
+grid.arrange(plot1,plot2,plot3,nrow=3)
+```
+
+By analyzing the event data over time, we observe fluctuating patterns in curb zone usage from October 2022 to April 2023, without a clear overall increasing or decreasing trend. Weekdays exhibit a higher frequency of loading events compared to weekends, with the most significant activity occurring during PM rush hours. This is followed by a notable amount of events in the overnight and Mid Day period. AM rush activities are the least frequent. The comparison between weekdays and weekends shows that the PM rush & Mid day hour peak is a distinct feature of the weekday pattern, whereas weekend events are more evenly distributed throughout the day, albeit at a lower volume.
+
+```{r exploratory_serial, echo=TRUE, fig.height=5, fig.width=8}
+#peak parking times
+event_export$event_time_start <- as.POSIXct(event_export$event_time_start, format = "%Y-%m-%d %H:%M:%S")
+peak_times <- event_export%>%
+  mutate(Hour = format(event_time_start, "%H")) %>%
+  group_by(Hour) %>%
+  summarise(Events = n())
+
+#event patterns over time
+patterns <- event_export %>%
+  group_by(Date=as.Date(event_time_start)) %>%
+  summarise(Events=n()) %>%
+  mutate(week=week(Date),
+         dotw=wday(Date,label=TRUE))
+
+byhour <- event_export %>%
+  group_by(time_of_day) %>%
+  summarise(Events=n())
+
+byweekend<- event_export %>%
+  group_by(weekend) %>%
+  summarise(Events=n())
+
+weekend_hour <- event_export %>%
+  group_by(weekend, hour(interval60)) %>%
+  summarize(Events=n()) %>%
+  rename(hour='hour(interval60)')
+
+  grid.arrange(
+  ggplot(patterns, aes(Date,Events)) + geom_line(color="#1F9E89") + 
+    labs(title="Event Patterns by Time, from Oct 2022 to Apr 2023", x="Date", y="Event Counts") + theme_minimal(),
+   ggplot(patterns, aes(dotw,Events)) + geom_bar(stat="identity",fill="#1F9E89") + 
+    labs(title="Event Patterns by Day of the Week, from Oct 2022 to Apr 2023", x="Date", y="Event Counts") + theme_minimal(),
+  
+  ggplot(byhour, aes(time_of_day,Events)) + geom_bar(stat="identity",fill="#1F9E89") + 
+    labs(title="Event Patterns by Hour of the Day", x="Hour", y="Event Counts") + theme_minimal(),
+
+  ggplot(weekend_hour, aes(x=hour, y=Events, color=weekend)) + geom_line() + 
+    scale_color_manual(values=palette2)+
+    labs(title="Event Patterns under Week and Time", x="Hour", y="Event Counts") + theme_minimal(),
+  nrow=2)
+   
+  #Correlation
+  correlation <- cor(event_export$dwell_time_minutes,event_export$vehicle_length)
+```
+
+The parking duration chart shows common parking times at 20, 80, and 120 minutes, with 20 minutes being the most frequent. The vehicle type chart indicates that cars are the most common, with far fewer events for trucks, vans, and freight vehicles.
+
+```{r exploratory_operation, echo=TRUE, fig.height=3, fig.width=6}
+#parking duration distribution
+
+#vehicle type analysis
+vehicle_type <- event_export %>%
+  group_by(vehicle_type) %>%
+  summarise(Total_Events=n())
+
+grid.arrange(
+ggplot(event_export, aes(x=dwell_time_minutes)) +
+  geom_histogram(binwidth = 5,fill="#1F9E89",color="white") +
+  theme_minimal()+
+  labs(x="Dwell Time (minutes)", y="Count", title="Parking Duration Distribution"),
+ggplot(vehicle_type,aes(x=vehicle_type,y=Total_Events))+
+  geom_bar(stat="identity",fill="#1F9E89")+
+  theme_minimal()+
+  labs(x="Vehicle Type", y = "Events", title="Events by Vehicle Type")+
+  theme_minimal(),
+nrow=1)
+```
+
+The total bookings by curb are presented below. Notably, 1000 Chestnut St and 1200 Sansom Street register significantly higher bookings, likely attributable to their extended operating hours throughout the week. Additionally, there is a clear trend where the segments along 8-10th St and 12-13th St experience higher event frequencies within each horizontal street.
+
+```{r echo=TRUE, fig.height=4, fig.width=8, message=FALSE}
+curb_bookings <- panel %>%
+  group_by(SmartZoneName) %>%
+  summarise(Bookings=sum(Events)) %>%
+  arrange(desc(Bookings))
+
+st_geometry(curb_bookings) <- NULL
+
+geo <- geo %>%
+  select(SmartZoneName,geometry)%>%
+  distinct(SmartZoneName, geometry)
+
+geo_points <- geo$geometry %>%
+  stringr::str_extract_all("[-]?[0-9]+\\.[0-9]+") %>% # 提取所有数字（包括小数点和负号）
+  purrr::map(~st_point(as.numeric(.x), dim = "XY")) # 将每个提取出来的数值向量转换为POINT对象
+
+geo_sf <- st_as_sf(geo, geometry = do.call("st_sfc", geo_points), crs = 4326) %>% 
+  select(-geometry)
+
+curb_bookings <- geo_sf %>%
+  left_join(curb_bookings, by=c("SmartZoneName"))
+
+# Set tmap mode to view for interactive maps
+tmap_mode("view")
+
+tm2 <- tm_shape(curb_bookings) +
+  tm_bubbles(size = "Bookings", col = "Bookings", palette = "viridis", scale=5, border.col = "black", 
+             title.size = "Bookings", title.col = "Total Bookings") 
+tm2
+```
+
+## Road Network Exploratory Analysis 
+
+### Street
+
+To conduct the road network analysis, we got the data from the complete street dataset from Open Data Philly. Then, we filtered the dataset by our streets of interests, Chestnut, Sansom, and Walnut street, and include their characteristics for further analysis.
+
+
+```{r cars, include=FALSE}
+# Filter for Chestnut, Sansom, and Walnut Streets
+streets_of_interest <- c("Chestnut", "Sansom", "Walnut")
+filtered_streets <- completestreets %>% 
+  filter(grepl(paste(streets_of_interest, collapse="|"), ST_NAME, ignore.case = TRUE))
+
+booking_data$DayOfWeek <- wday(ymd_hms(booking_data$CreateTime), label = TRUE, abbr = FALSE)
+
+
+Mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+# Summarize characteristics
+street_summary <- filtered_streets %>%
+  group_by(ST_NAME) %>%
+  summarize(
+    MinSurfaceWidth = min(SURFAWIDTH, na.rm = TRUE),
+    MeanSurfaceWidth = mean(SURFAWIDTH, na.rm = TRUE),
+    MaxSurfaceWidth = max(SURFAWIDTH, na.rm = TRUE),
+    BikeNetwork = Mode(BIKENETWOR),
+    SidewalkWidth = Mode(SIDEWLK_WD),
+    OneWayStatus = Mode(ONEWAY),
+    .groups = 'drop'
+  )
+
+```
+
+The bar plot shows the number of booking events on each of the streets. It shows that Chestnut street has a higher activity compared to Sansom and Walnut in terms of bookings. The reason is due to the fact that the operating hours of the loading zones on Chestnut Street is longer than the other two streets. A boxplot shows the distribution of booking events throughout the day, showing peak booking hours for each street.
+
+```{r cars1, echo=TRUE, fig.height=4, fig.width=8}
+# Filter booking data for the streets of interest
+booking_data_filtered <- booking_data %>% 
+  filter(grepl(paste(streets_of_interest, collapse="|"), StreetName, ignore.case = TRUE))
+
+# Number of Booking Events by Street
+# Distribution of Booking Events Over Time by Street
+
+grid.arrange(
+ggplot(booking_data_filtered, aes(x = StreetName)) + 
+  geom_bar(fill="#1F9E89")+
+  theme_minimal() + 
+  labs(title = "Number of Booking Events by Street", y = "Number of Booking Events", x = "Street Name") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)),
+ggplot(booking_data_filtered, aes(x = StreetName, y = TimeRequestedHour)) + 
+  geom_boxplot() + 
+  theme_minimal() + 
+  labs(title = "Distribution of Booking Events Over Time by Street", y = "Time Requested (Hour of the Day)", x = "Street Name") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)),
+nrow=1)
+
+```
+
+In this chart, events are summarized by day of the week for each street to identify daily traffic patterns. It shows that the Chestnut Street has the highest booking events than the other two streets throughout the week, and has highest booking events on Thursday.
+
+```{r cars2, echo=TRUE, fig.height=4, fig.width=6}
+# Filter for streets of interest if not already done
+streets_of_interest <- c("Chestnut", "Walnut", "Sansom")
+booking_data_filtered <- booking_data %>%
+  filter(StreetName %in% streets_of_interest)
+
+# Summarize booking events by day of the week and street
+booking_summary <- booking_data_filtered %>%
+  group_by(SmartZoneName,StreetName, DayOfWeek) %>%
+  summarise(TotalEvents = n(), .groups = 'drop')
+
+# Ensure all combinations of DayOfWeek and StreetName are represented
+booking_summary_expanded <- expand.grid(StreetName = streets_of_interest, DayOfWeek = unique(booking_data$DayOfWeek)) %>%
+  left_join(booking_summary, by = c("StreetName", "DayOfWeek")) %>%
+  replace_na(list(TotalEvents = 0)) # Fill NA values for TotalEvents with 0
+
+
+ggplot(booking_summary_expanded, aes(x = DayOfWeek, y = TotalEvents, fill = StreetName)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Total Booking Events by Day of the Week and Street",
+       x = "Day of the Week",
+       y = "Total Booking Events") +
+  scale_fill_manual(values = c("#3E4A89", "#1F9E89", "#B4DE2C"))+
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+
+```
+
+### Bike
+
+The interactive map shows the booking locations and bike networks around. We can tell that most of the curb size loading zones are located on bike networks, which leads to potential conflicts between cyclists and vehicles and impacts on the traffic flow. This is something planners should take into consideration when building new curb zones.
+
+```{r bike, fig.height=4, fig.width=8, message=FALSE}
+# Set tmap mode to view for interactive maps
+tmap_mode("view")
+
+# Plot the booking data and bike network
+tm3 <- tm_shape(booking_data) +
+  tm_dots(col = "#3E4A89", size = 0.1, alpha = 0.5) +
+  tm_shape(bike_network) +
+  tm_lines(col = "red", alpha = 0.5)
+
+tm3
+
+```
+
+
+## OpenStreetMap exploration
+
+The "**amenity**" types we collected were: "bar", "cafe", "fast_food", "pub", "restaurant", "college", "school", "university", "parking_space", "bank", "atm", "clinic", "hospital", "pharmacy", "community_centre", "conference_centre", "nightclub", "theatre", "police", "post_box", "post_office", "place_of_worship"
+
+The "**building**" types we collected were: "apartments", "dormitory", "hotel", "commercial", "office", "retail", "supermarket", "warehouse", "church", "college", "government", "hospital", "public", "school", "university"
+
+The "**shop**" types we collected were: "alcohol", "bakery", "beverages", "coffee", "convenience", "deli", "department_store", "general", "supermarket", "clothes", "gift"
+
+We also collected **office** building types and **land uses** but these data were not a large enough sample.
+
+```{r openstreemap location collection, message=FALSE}
+# amenities <- c("bar", "cafe", "fast_food", "pub", "restaurant", "college", "school", "university", 
+#                    "parking_space", "bank", "atm", "clinic", "hospital", "pharmacy", "community_centre", 
+#                    "conference_centre", "nightclub", "theatre", "police", "post_box", "post_office", 
+#                    "place_of_worship")
+# 
+# # Format the list: remove underscores, capitalize first letter, and put in quotes
+# formatted_list <- gsub("_", " ", amenities)
+# formatted_list <- gsub("^([a-z])", "\\U\\1", formatted_list, perl = TRUE)
+# formatted_list_1 <- paste0('"', formatted_list, '"')
+# 
+# buildings <- c("apartments", "dormitory", "hotel", "commercial", "office", 
+#                    "retail", "supermarket", "warehouse", "church", "college", 
+#                    "government", "hospital", "public", "school", "university")
+# 
+# formatted_list <- gsub("_", " ", buildings)
+# formatted_list <- gsub("^([a-z])", "\\U\\1", formatted_list, perl = TRUE)
+# formatted_list_2 <- paste0('"', formatted_list, '"')
+# 
+# shops <- c("alcohol", "bakery", "beverages", "coffee", "convenience", "deli",
+#                    "department_store", "general", "supermarket", "clothes", "gift")
+# 
+# formatted_list <- gsub("_", " ", shops)
+# formatted_list <- gsub("^([a-z])", "\\U\\1", formatted_list, perl = TRUE)
+# formatted_list_3 <- paste0('"', formatted_list, '"')
+# 
+# # Create a dataframe
+# poi_types <- data.frame(Amenities = formatted_list_1, Buildings = formatted_list_2, Shops = formatted_list_3)
+```
+
+Assuming that distance to some certain types of buildings relates to how much cars and trucks need to use loading zones there, we calculated the distance from each pilot loading zone to the three nearest of each of these types.
+
+```{r nearest neighbors, fig.height=6, fig.width=9, message=FALSE}
+
+numeric <- test %>%
+  dplyr::select(-c("SmartZoneName")) %>%
+  st_drop_geometry(.) %>%
+  mutate(log10events = log10(events))
+
+#Correlation plot
+corplot <- cor(numeric)
+
+cor_df <- as.data.frame(corplot)
+
+# Extract the column values and row names
+column_name <- "log10events"  # Replace "mpg" with the column name you want to plot
+column_values <- cor_df[[column_name]]
+cor_df <- data.frame(variable = rownames(cor_df), correlation = column_values)
+
+cor_df <- filter(cor_df, variable != "events" & variable != "log10events")
+
+#interactive
+ggplotly(
+  ggplot(cor_df, aes(x = reorder(variable, -correlation), y = correlation, fill = correlation)) +
+    geom_bar(stat = "identity") +
+    labs(title = "Relationships with Log10 Events",
+         x = "Nearest Neighbor Variables",
+         y = "Correlation") +
+    ylim(-1, 1) +
+    scale_fill_viridis_c() +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust = 1))
+)
+
+```
+
+```{r clear NN table, echo=TRUE, fig.height=6, fig.width=12}
+filter(cor_df, abs(correlation) > 0.5) %>%
+  ggplot(., aes(x = reorder(variable, -correlation), y = correlation, fill=correlation)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Strongest Relationships (>0.5) with Log10 Events",
+       x = "Nearest Neighbor Variables",
+       y = "Correlation") +
+  ylim(-1,1)+
+  scale_fill_viridis_c()+
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1))
+```
+
+Many of the strongest relationships are negative ones. In particular, decreasing correlation with the number of parking events at a loading zone come with distance from a place of worship.
+
+The positive relationships are associated with clinics and community centers.
+
+### OSM Queries
+
+```{r OSM, fig.height=4, fig.width=8, message=FALSE}
+# Set tmap mode to view for interactive maps
+tmap_mode("view")
+
+# Plot the booking data and bike network
+tm4 <- tm_shape(sf_buildings, name="OSM Buildings") +
+  tm_dots(col = "building", alpha = 0.5, legend.show=FALSE, id="building") +
+  tm_shape(test, name="Pilot Zones") +
+  tm_dots(col = "#3E4A89", size = 0.1) +
+  tm_layout(title = "Types of Buildings (from OSM) in Relation to Pilot Zones")
+
+tm4+tm_view(set.view=14)
+```
+
+One of the queries from OSM was from their dataset of types of buildings. This interactive map allows you to compare where the pilot zones are in relation to various types of buildings. For example, you can see large clusters of hospitals and universities in University City and "commercial" in the office district west of City Hall.
+
+
+# Feature Engineering
+
+## Nearest Neighbor Road Classes
+
+Figuring out the type of street that each pilot zone on is important to understanding the type of traffic that uses that street.
+
+```{r st_classification, fig.height=4, fig.width=8, message=FALSE}
+# Set tmap mode to view for interactive maps
+tmap_mode("view")
+
+# Plot the booking data and bike network
+tm5 <- tm_shape(curbs, name="Streets") +
+  tm_lines(col = "Road_Class", alpha = 0.5, legend.show=FALSE, id="strt_name.x", lwd=4) +
+  tm_shape(road_class, name="Pilot Zones") +
+  tm_dots(col = "#3E4A89", size = 0.1) +
+  tm_layout(title = "Street Classifications in Relation to Pilot Zones")
+
+tm5+tm_view(set.view=c(-75.16,39.95,16))
+
+```
+
+
+Calculating the distance to each type of road classification can be a proxy for calculating full network relationships. We calculated the distance from each curb to each type of street, from highways all the way down to alleys.
+
+```{r road_NN, fig.height=4, fig.width=8, message=FALSE}
+# Set tmap mode to view for interactive maps
+tmap_mode("view")
+
+# Plot the booking data and bike network
+tm6 <- tm_shape(curbs, name="Streets") +
+  tm_lines(col = "dist_class_2", alpha = 0.5, legend.show=FALSE, id="strt_name.x", lwd=4) +
+  tm_layout(title = "Distance from each Curb to Major Arterials")
+
+tm6+tm_view(set.view=14)
+
+```
+
+## Recategorization
+
+With more than 250 unique variables collected from OSM, we streamlined the data into 11 simpler categories. This will be beneficial in eliminating the vagaries that come from some previous variables having very small groups, being very similar definitions to other variables, etc.
+
+```{r pressure, echo=FALSE, fig.height=12, fig.width=8}
+print(new_cats)
+```
+
+## OLS Test Between Variables
+
+```{r OLS, include=FALSE}
+# Subset the dataframe to include only numeric columns
+numeric_columns <- sapply(panel, is.numeric)
+dat_num <- panel[, numeric_columns] %>% st_drop_geometry()
+dat_nn <- dat_num %>%na.omit()
+
+model_info <- data.frame(Variable = character(),
+                         Estimate = numeric(),
+                         StdError = numeric(),
+                         tValue = numeric(),
+                         pValue = numeric(),
+                         stringsAsFactors = FALSE)
+
+# Loop through each numeric variable, excluding the target variable
+for(var in setdiff(names(dat_num), "Events")) {
+  formula <- as.formula(paste("Events ~", var))
+  model <- lm(formula, data = dat_num)
+  summary_model <- summary(model)
+  
+  # Extracting key information
+  model_info <- rbind(model_info, data.frame(Variable = var,
+                                             Estimate = summary_model$coefficients[2, 1],
+                                             StdError = summary_model$coefficients[2, 2],
+                                             tValue = summary_model$coefficients[2, 3],
+                                             pValue = summary_model$coefficients[2, 4]))
+}
+
+model_info %>%
+  arrange(pValue)
+```
+
+```{r variable_importance, echo=TRUE, fig.height=4, fig.width=8}
+significant_vars <- model_info %>% 
+  filter(pValue < 0.05)
+
+# -log(p)
+significant_vars$pValue_neg_log <- -log10(significant_vars$pValue)
+
+ggplot(significant_vars, aes(x = reorder(Variable, pValue_neg_log), y = pValue_neg_log)) +
+  geom_col(fill = "#1F9E89") +
+  coord_flip() +  
+  labs(title = "Variable Importance Based on Transformed p-Values (p < 0.05)",
+       x = "Variable",
+       y = "-log10(p-Value)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+```
+
+
+```{r coorelation matrix, eval=FALSE, fig.height=4, fig.width=4, include=FALSE}
+# Assuming panel is your dataset and has been appropriately pre-processed
+model_info_sub <- panel %>% 
+  select(-SmartZoneName, -day) %>%
+  mutate(across(where(is.numeric), as.numeric))%>%
+  select_if(~ is.numeric(.))  # Ensuring only numeric data is retained
+
+# Calculate correlation matrix
+cor_matrix <- cor(model_info_sub, use = "complete.obs")
+
+# Assuming cor_pmat is a function you've defined or it's part of your libraries that returns p-values
+# Make sure it's correctly receiving a numeric matrix
+p_matrix <- cor_pmat(model_info_sub)
+
+ggcorrplot(
+  cor_matrix,
+  p.mat = p_matrix,
+  type = "lower",
+  insig = "blank",
+  colors = c("#440154", "white", "#35B779"),
+  tl.cex = 8,
+  tl.col = "black",
+  tl.srt = 45
+) +
+  labs(title = 'Correlation across all variables') +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+```
+
+# Predictive Model
+
+## Data Preparation
+
+```{r include=FALSE}
+set.seed(123)
+
+#st_geometry(panel) <- NULL
+
+train_index_simple <- sample(1:nrow(panel), nrow(panel) * 0.7)
+
+train_set_simple <- panel[train_index_simple, ]
+test_set_simple <- panel[-train_index_simple, ]
+```
+
+## Data Modeling
+Simplified Panel with time, road network, and nearest neighbors variables.
+
+### Hyper Parameters
+By adjusting the hyperparameters, the optimal combination is as follows:
+mtry=17, nodesize = 22, ntree = 1000, maxnodes = 20
+
+```{r model_para, eval=FALSE, include=FALSE}
+
+train_set_simple <- train_set_simple %>%
+  select(-SmartZoneName)  
+
+rf_spec <- rand_forest(
+  mtry = tune(), 
+  trees = 1000,
+  min_n = tune()  # nodesize
+) %>%
+  set_mode("regression") %>%
+  set_engine("randomForest")
+
+rf_recipe <- recipe(Events ~ ., data = train_set_simple)
+
+tune_grid <- grid_regular(
+  mtry(c(5, 30)),
+  min_n(c(10, 60)),
+  levels = 5
+)
+
+cv_folds <- vfold_cv(train_set_simple, v = 10)
+
+rf_workflow <- workflow() %>%
+  add_recipe(rf_recipe) %>%
+  add_model(rf_spec)
+
+rf_results <- tune_grid(
+  rf_workflow,
+  resamples = cv_folds,
+  grid = tune_grid,
+  metrics = metric_set(rmse)
+)
+
+best_params <- select_best(rf_results, metric = "rmse")
+
+saveRDS(best_params, "/Users/lingchen/Documents/Practicum/Practicum_Philly_2024/Data/best_rf_model.rds")
+saveRDS(rf_workflow, "/Users/lingchen/Documents/Practicum/Practicum_Philly_2024/Data/rf_workflow.rds")
+```
+
+```{r include=FALSE}
+# load parameters of random forest model
+setwd("/Users/lingchen/Documents/Practicum/Practicum_Philly_2024/Data")
+best_params <- readRDS("best_rf_model.rds")
+rf_workflow <- readRDS("rf_workflow.rds")
+```
+
+### Ramdon Forest Model
+
+```{r echo=TRUE}
+
+# Finalize the workflow with the best parameters
+final_rf_workflow <- finalize_workflow(
+  rf_workflow,
+  best_params
+)
+
+# Fit the final model on the entire training set
+final_rf_fit <- fit(final_rf_workflow, data = train_set_simple)
+
+# Predict the test set
+predictions <- predict(final_rf_fit, test_set_simple)
+
+# Optionally, you can examine the predictions
+summary(predictions)
+```
+
+The chart visualizes the relative importance of the top 20 variables in a predictive model. Notably, the 'week' variable stands out as the most significant predictor, followed by the day variable, and the distance to class 4 and class 2 roads, indicating their substantial influence on the model's output. Other proximity-related variables such as civic, retail, grocery, housing, dining, parking amenities, and schools are also identified as key factors, though to a lesser extent than week and road class variables.
+
+```{r echo=TRUE, fig.height=4, fig.width=6}
+
+top_n <- 20
+vi <- vip(final_rf_fit, num_features = top_n, geom = "point")
+print(vi)
+
+```
+
+```{r include=FALSE}
+# Assuming 'prediction' contains your model's predictions and 'test_set' is your test dataset
+# Add a residuals column to test_set
+test_set_simple <- test_set_simple %>%
+  mutate(
+    Prediction = predictions$.pred,
+    Residual = Events - Prediction,
+    AbsResidual = abs(Residual)
+  )
+
+#setwd("/Users/lingchen/Documents/Practicum/Practicum_Philly_2024/Data")
+#write_csv(test_set_simple,"./testresult_0429.csv")
+```
+
+## Model Generalizability Evaluation
+### Examine Error Metrics for Accuracy
+
+The provided chart showcases the performance of a Random Forest model used for predicting bookings on a weekly basis. It indicates that the model tends to underperform particularly in extreme scenarios, such as when bookings are unusually high. The model shows a noticeable disparity in predictive accuracy for bookings that exceed an average of 1, often underestimating the actual values. Additionally, it is noteworthy that there are no bookings during the week of Christmas.
+
+Apart from that, there's an observable seasonal trend in bookings, which the model does not seem to fully capture. This limitation is likely due to the model being trained on a dataset limited to the months of October through April, which may not be representative of the entire year. This seasonal effect and the limited data scope could be contributing to the model's reduced effectiveness during peak booking periods in summer.
+
+```{r echo=TRUE, fig.height=6, fig.width=12}
+
+# add a 'year' variable to distinguish between years, then create an 'ordered_week' variable for proper week ordering.
+test_set_simple <- test_set_simple %>%
+  mutate(year = if_else(week >= 42, "2022", "2023")) %>%  # Assign "Year1" or "Year2" based on the week number
+  arrange(year, week) %>%  # Sort by year and week
+  mutate(ordered_week = row_number())  # Assign a unique ordering number for each week
+# add a 'year' variable to distinguish between years, then create an 'ordered_week' variable for proper week ordering.
+
+# Now use this 'ordered_week' variable to draw your plot
+test_set_simple %>%
+  select(SmartZoneName, ordered_week, day, Events, Prediction) %>%
+  gather(Variable, Value, Events, Prediction) %>%  # Transform data to long format for plotting
+  group_by(Variable, ordered_week, day) %>%
+  summarize(Value = mean(Value, na.rm = TRUE), .groups = 'drop') %>%  # Calculate average value for each group
+  ggplot(aes(x = ordered_week, y = Value, color = Variable, group = Variable)) +  # Plotting
+    geom_line(size = 0.5) + 
+  scale_color_manual(values = c("bookings" = "#440154", "Prediction" = "#35B779")) +
+    scale_x_continuous(breaks = test_set_simple$ordered_week, labels = test_set_simple$Week) +  # Custom x-axis breaks and labels
+    labs(title = "Predicted/Observed Bookings from Octobet, 2022 to April, 2023", 
+         subtitle = "Random Forest Model by Week and Day", 
+         x = "Week of Year", 
+         y = "Average Bookings") +  # Labels and titles
+    theme_minimal() +  # Minimal theme
+    #theme(axis.text.x = element_blank()  # Hide x-axis text)
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5))  # Adjust the appearance of x-axis text
+
+```
+
+### Space-Time Error Evaluation
+
+This map provides a spatial overview of the model’s performance across different streets, where larger circles with more bright colors indicate a higher MAE at that curb, suggesting that the model's predictions are less accurate on Chestnut St and Sansom St, while Walnut St has a relatively better performance.
+
+```{r eval=FALSE, message=FALSE, include=FALSE}
+# Now group by SmartZoneName and summarize the residuals
+
+error_analysis_curb <- test_set_simple %>%
+  group_by(SmartZoneName,Road_class) %>%
+  summarise(
+    Mean_events=mean(Events),
+    Mean_booking=mean(Prediction),
+    MeanResidual = mean(Residual, na.rm = TRUE),
+    MAE = mean(AbsResidual, na.rm = TRUE),
+    MSE = mean(Residual^2, na.rm = TRUE),
+    RMSE = sqrt(MSE),
+    MAPE = 100*(MAE/Mean_events),
+    MEDAPE = 100*(median(AbsResidual)/median(Events)),
+    Count = n()
+  ) %>%
+  arrange(desc(MAPE))
+
+# View the error analysis results
+print(error_analysis_curb)
+error_analysis_curb <- error_analysis_curb %>%
+  filter(is.finite(MAE))
+
+geo <- geo %>%
+  select(SmartZoneName,geometry)%>%
+  distinct(SmartZoneName, geometry)
+
+geo_points <- geo$geometry %>%
+  stringr::str_extract_all("[-]?[0-9]+\\.[0-9]+") %>% # 提取所有数字（包括小数点和负号）
+  purrr::map(~st_point(as.numeric(.x), dim = "XY")) # 将每个提取出来的数值向量转换为POINT对象
+
+geo_sf <- st_as_sf(geo, geometry = do.call("st_sfc", geo_points), crs = 4326) %>% # crs 4326是WGS84坐标系
+  select(-geometry)
+
+error_analysis_curb <- geo_sf %>%
+  left_join(error_analysis_curb, by=c("SmartZoneName"))
+
+st_write(error_analysis_curb, "./error_analysis_curb.geojson")
+```
+
+```{r echo=TRUE, fig.height=4, fig.width=8, message=FALSE}
+
+# Set tmap mode to view for interactive maps
+tmap_mode("view")
+
+tm7 <- tm_shape(error_analysis_curb) +
+  tm_bubbles(size = "MAE", col = "MAE", palette = "viridis", scale=5, border.col = "black", 
+             title.size = "MAE", title.col = "MAE") 
+tm7
+```
+
+From the chart, the high error in conjunction with high data counts suggest a systematic issue with the model especially on Tuesday and Thursday, rather than a random fluctuation. As such, there's need to further check the weekly patterns or specific events impacting the model performance. While those low error points with low data counts, like Monday, demonstrate its good performance.
+
+```{r echo=TRUE, fig.height=4, fig.width=6, message=TRUE}
+
+# Now group by SmartZoneName and summarize the residuals
+error_analysis_day <- test_set_simple %>%
+  group_by(day) %>%
+  summarise(
+    Mean_events=mean(Events),
+    Mean_booking=mean(Prediction),
+    MeanResidual = mean(Residual, na.rm = TRUE),
+    MAE = mean(AbsResidual, na.rm = TRUE),
+    MSE = mean(Residual^2, na.rm = TRUE),
+    RMSE = sqrt(MSE),
+    MAPE = 100*(MAE/Mean_events),
+    MEDAPE = 100*(median(AbsResidual)/median(Events)),
+    Count = n()
+  ) %>%
+  arrange(desc(MAE))
+
+
+# View the error analysis results
+print(error_analysis_day)
+
+error_analysis_day$day <- factor(error_analysis_day$day, 
+                                 levels = c("Mon", "Tue", "Wed", "Thu", "Fri"), 
+                                 ordered = TRUE)
+
+
+ggplot(error_analysis_day, aes(x = day, y = MAE)) +
+  geom_point(aes(size = Count, color = MAE)) +  
+  scale_color_gradient(low = "#35B779", high = "#440154") +  
+  labs(x = "Day of the Week", 
+       y = "Daily Mean Absolute Percentage Error (MAE)", 
+       title = "Daily Forecast Error") +
+  theme_minimal() +
+  theme(legend.position = "bottom") 
+
+```
+
+The prediction performance is more accurate during Monday and Friday, whereas it tends to have higher errors on middle of the week, especially on Tuesday.
+
+```{r echo=TRUE, fig.height=4, fig.width=4}
+
+ggplot(error_analysis_day, aes(x = factor(day), y = MAE)) +
+  geom_bar(stat = "identity", aes(fill = factor(day))) +
+  scale_fill_manual(values = palette5) + 
+  labs(x = "Day of the Week", y = "Mean Absolute Error (MAE)", 
+       title = "Daily Forecast Error") +
+  theme_minimal()
+
+```
+
+Overall, the model seems to be more accurate and precise for lower values of bookings and shows some divergence from the observed data at higher booking values. The similarity of the trend lines in five panels suggests the model performs consistently across weekdays. However, the model doesn't seem to be able to catch high values within the weekdays. Specifically, ⁠Monday and Friday show good prediction accuracy, others (particularly Wednesday) show significant prediction errors
+
+```{r echo=TRUE, fig.height=4, fig.width=8, message=FALSE}
+
+# 确保 test_set_simple 数据集中的 day 列是一个有序因子
+test_set_simple$day <- factor(test_set_simple$day, 
+                              levels = c("Mon", "Tue", "Wed", "Thu", "Fri"), 
+                              ordered = TRUE)
+
+
+ggplot() +
+  geom_point(data = test_set_simple, aes(x = Events, y = Prediction), color = "#35B779") +
+  geom_smooth(data = test_set_simple, aes(x = Events, y = Prediction), method = "lm", se = FALSE, color = '#440154') +
+  geom_abline(slope = 1, intercept = 0) +
+  facet_grid(~day) +  
+  labs(title = "Observed vs Predicted",
+       subtitle = 'Weekday Comparison',
+       x = "Bookings", 
+       y = "Predicted Bookings") +
+  plotTheme()+
+  theme_minimal()
+```
+
+### Binary Prediction Performance
+
+While model is not good at capturing number of events larger than 1, it is still 75% accurate at predicting whether a curb will be occupied or not. The ROC curve here further illustrates its good performance. Specifically, the accuracy, sensitivity, and positive predictive value are relatively high, but the model struggles with specificity and negative predictive value, suggesting it's better at predicting positives than negatives.
+
+```{r echo=TRUE, message=TRUE}
+binary <- test_set_simple%>%
+  select(SmartZoneName,Events,Prediction)
+
+binary$Events_binary <- ifelse(binary$Events > 0, 1, 0)
+# Convert predictions to binary
+binary$Prediction_binary <- ifelse(binary$Prediction > 0.5, 1, 0)
+
+conf_matrix <- confusionMatrix(as.factor(binary$Prediction_binary), as.factor(binary$Events_binary))
+print(conf_matrix)
+```
+
+```{r roc, echo=TRUE, fig.height=4, fig.width=4, message=TRUE}
+# ROC curve
+roc_obj <- roc(binary$Events, binary$Prediction)
+plot(roc_obj)
+auc(roc_obj)
+```
+
+```{r eval=FALSE, include=FALSE}
+# 你原始的代码，用于准备数据和基本的性能评估
+binary <- test_set_simple %>%
+  select(SmartZoneName, Events, Prediction)
+
+binary$Events_binary <- ifelse(binary$Events > 0, 1, 0)
+binary$Prediction_binary <- ifelse(binary$Prediction > 0.5, 1, 0)
+
+conf_matrix <- confusionMatrix(as.factor(binary$Prediction_binary), as.factor(binary$Events_binary))
+print(conf_matrix)
+
+# ROC曲线和AUC
+roc_obj <- roc(binary$Events_binary, binary$Prediction)
+plot(roc_obj)
+print(auc(roc_obj))
+
+
+# 寻找最佳阈值
+best_threshold <- coords(roc_obj, "best", ret="threshold", best.method="closest.topleft")
+print(paste("Best Threshold: ", best_threshold))
+
+```
+
+### Cross-validation
+
+The cross-validation chart indicates that for a random forest model subjected to a 50-fold cross-validation process, the Goodness of Fit metrics—MAE, RMSE, and Rsquared—are closely clustered around their respective means. Specifically, the model's predictions were off by over 0.47(MAE), whereas the RMSE's central clustering suggests a similarly consistent average error magnitude but considering the squaring of the errors, which gives more weight to larger errors. The Rsquared values around 0.23 imply that the model explains only 23% of the variability in the data.It implies that the model is not capturing the complexity of the data.
+
+```{r cv_run, eval=FALSE, include=FALSE}
+fitControl <- trainControl(method = "cv", number = 50)
+set.seed(825)
+
+rf.cv <- train(Events ~ ., data = train_set_simple, 
+               method = "rf",
+               trControl = fitControl,
+               tuneGrid = expand.grid(.mtry = 17),
+               importance = TRUE,
+               ntree = 1000,
+               nodesize = 22,
+               maxnodes = 20)
+
+rf.cv
+
+saveRDS(rf.cv, file = "rf_cv_model.rds")
+```
+
+```{r cv, echo=TRUE, fig.height=4, fig.width=8, message=FALSE}
+setwd("/Users/lingchen/Documents/Practicum/Practicum_Philly_2024/Data")
+rf.cv <- readRDS("rf_cv_model.rds")
+
+dplyr::select(rf.cv$resample, -Resample) %>%
+  gather(metric, value) %>%
+  left_join(gather(rf.cv$results[2:4], metric, mean)) %>%
+  ggplot(aes(value)) + 
+    geom_histogram(bins=35, fill = "#2a9d8f") +
+    facet_wrap(~metric) +
+    geom_vline(aes(xintercept = mean), colour = "#e76f51", linetype = 3, size = 1.5) +
+    scale_x_continuous(limits = c(0, 1)) +
+    labs(x="Goodness of Fit", y="Count", title="CV Goodness of Fit Metrics",
+         subtitle = "50 folds, Across-fold mean reprented as dotted lines") +
+    plotTheme()
+
+```
+
+# Prediction on all curbs
+
+In the diagram illustrating the demand for smart loading zones in Philadelphia, several patterns emerge. Notably, there's a consistent high demand observed near Independence Mall, likely due to its status as a popular tourist destination and the presence of numerous historical sites, leading to increased commercial activity and delivery needs. Conversely, the lack of demand near highways could be attributed to the limited accessibility and the focus of commercial activity in more centralized areas. The spikes in demand midweek near universities are likely influenced by the rhythms of student life, with increased deliveries for campus facilities and student-oriented businesses. Additionally, the high demand near commercial streets can be explained by the concentration of businesses and retail establishments, necessitating frequent deliveries to meet consumer demands. These trends provide valuable insights for optimizing the placement and allocation of smart loading zones to efficiently meet the city's logistical needs.
+
+```{r prediction, echo=TRUE}
+
+all_curbs <- all_curbs %>%
+  select(-TARGET_FID, -end_st_.x, -strt_s_.x, -strt_nm.x, -OID_, -Join_Count, -categry, -curb_id, -currncy, -dstnc_n_, -dstnc_s_, -end_st_.y, -mx_drt_, -price, -rgltn_t, -sd_f_st, -smrt_z_, -strt_s_.y, -strt_nm.y, -time_zn, -vhcl_ty, -Shape_Length, -geometry) %>%
+  rename(Road_class = Road_Class)
+
+# Create a data frame to bind all predictions
+all_predictions <- data.frame()
+
+# Set up the nested loop
+for(day in c("Mon","Tue","Wed","Thu","Fri")) {
+    for(week in 1:16) {
+      
+      # Mutate the data to have the current week, day, and hour
+      temp_data <- all_curbs %>%
+        mutate(day = day,
+               week = week)
+      
+      # Make predictions with the model
+      temp_predictions <- predict(final_rf_fit, temp_data)
+      
+      # Add the predictions as a new column
+      temp_data <- temp_data %>%
+        mutate(Prediction = temp_predictions)
+      
+            # Bind the rows to the all_predictions data frame
+      all_predictions <- rbind(all_predictions, temp_data)
+    }
+  }
+
+all_predictions_16 <- all_predictions %>%
+  unnest(Prediction) %>%
+  rename(Prediction=.pred)
+
+#write_csv(all_predictions,"./allcurbs_prediction_16_0506.csv")
+```
+
+```{r export_result, echo=TRUE, message=FALSE}
+
+all_curbs_sf <- st_as_sf(all_curbs_2,wkt="geometry")
+all_predictions_sf <- st_as_sf(all_predictions_16,wkt="geometry")
+
+all_predictions_sf$wkt <- st_as_text(all_predictions_sf$geometry)
+all_curbs_sf$wkt <- st_as_text(all_curbs_sf$geometry)
+
+st_geometry(all_predictions_sf) <- NULL
+st_geometry(all_curbs_sf) <- NULL
+
+all_results <- left_join(all_predictions_sf, all_curbs_sf[, c("wkt", "curb_id","TARGET_FID","OID_")], by = "wkt")
+
+all_results$geometry <- st_as_sfc(all_results$wkt)
+all_results <- st_sf(all_results)
+all_results <- all_results %>% select(-wkt)  
+
+#write_csv(all_results,"./allcurbs_detailed_0505.csv")
+```
+
+```{r simplified_panel, echo=TRUE}
+
+all_results_simplified <- all_results %>%
+  select(day,week,curb_id,TARGET_FID, OID_,Prediction)
+all_results_simplified$Prediction <- round(all_results_simplified$Prediction,3)
+
+#date
+year <- 2025
+
+first_day_of_year <- ymd(paste(year, "0101", sep=""))
+
+# 确定年的第一天是周几，用于计算第一周的开始
+first_day_wday <- wday(first_day_of_year)
+
+# 通过 ISO 周数计算每个日期的起始日（ISO周的第一天通常是周一）
+# ISO周的第一天如果不是1月1日，需要调整
+start_of_week <- first_day_of_year + days((all_results_simplified$week - 1) * 7 + (1 - first_day_wday))
+
+# 根据day字段调整到正确的星期几
+all_results_simplified$date <- start_of_week + days(match(all_results_simplified$day, c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")) - 1)
+
+all_results_simplified <- all_results_simplified %>%
+  mutate(Prediction_binary = ifelse(Prediction > 0.5, 1, 0))
+
+#write_csv(all_results_simplified,"./allcurbs_simplified_0505.csv")
+#st_write(all_results_simplified,"./allcurbs_simplified_0505.geojson")
+
+```
+
+```{r EDA export, eval=FALSE, include=FALSE}
+#EDA export
+all_curbs_export <- all_curbs_2 %>%
+  select(-OID_, -Join_Count,  -currncy, -dstnc_n_, -dstnc_s_, -end_st_.y, -mx_drt_,-sd_f_st, -smrt_z_, -strt_s_.y, -strt_nm.y, -time_zn, -vhcl_ty, -Shape_Length) %>%
+  rename(Road_class = Road_Class)
+
+#write_csv(all_curbs_export,"./allcurbs_EDA.csv")
+
+```
+
+```{r allcurbs_pred, echo=TRUE, fig.height=4, fig.width=8, message=FALSE}
+
+#setwd("/Users/lingchen/Documents/Practicum/Practicum_Philly_2024/Data")
+#all_results_simplified_2<-st_read("./allcurbs_simplified_0505.geojson")
+
+all_results_simplified$date <- as.Date(all_results_simplified$date, format = "%Y-%m-%d")
+
+pred_1_3 <- all_results_simplified %>%
+  filter(date >= as.Date("2025-01-01") & date <= as.Date("2025-3-31"))
+
+Pred_1_3_by_curb <- pred_1_3 %>%
+  group_by(curb_id,day) %>%
+  summarize(Prediction_Sum = sum(Prediction, na.rm = TRUE),
+            Pred_binary_sum=sum(Prediction_binary,na.rm=TRUE))
+
+# 假设你知道正确的CRS是NAD83 / Pennsylvania South (ftUS)，其EPSG代码为 2272
+Pred_1_3_by_curb <- st_set_crs(Pred_1_3_by_curb, 2272)
+
+```
+
+```{r pred_all_1_3, echo=TRUE, fig.height=4, fig.width=9, message=FALSE}
+
+data <- Pred_1_3_by_curb %>%
+  filter(day %in% c("Mon", "Tue", "Wed", "Thu", "Fri")) %>%
+
+  # 按curb_id和周聚合数据
+  group_by(curb_id) %>%
+  summarize(
+    Mon_sum = sum(Pred_binary_sum[day == "Mon"], na.rm = TRUE),
+    Tue_sum = sum(Pred_binary_sum[day == "Tue"], na.rm = TRUE),
+    Wed_sum = sum(Pred_binary_sum[day == "Wed"], na.rm = TRUE),
+    Thu_sum = sum(Pred_binary_sum[day == "Thu"], na.rm = TRUE),
+    Fri_sum = sum(Pred_binary_sum[day == "Fri"], na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+tmap_mode("view")
+
+tm9 <- tm_shape(data, name="Monday") +
+  tm_lines(col = "Mon_sum", alpha = 0.5, legend.show = TRUE, id = "curb_id", lwd = 4) +
+  tm_shape(data, name="Tuesday") +
+  tm_lines(col = "Tue_sum", alpha = 0.5, legend.show = FALSE, id = "curb_id", lwd = 4) +
+  tm_shape(data, name="Wednesday") +
+  tm_lines(col = "Wed_sum", alpha = 0.5, legend.show = FALSE, id = "curb_id", lwd = 4) +
+  tm_shape(data, name="Thursday") +
+  tm_lines(col = "Thu_sum", alpha = 0.5, legend.show = FALSE, id = "curb_id", lwd = 4) +
+  tm_shape(data, name="Friday") +
+  tm_lines(col = "Fri_sum", alpha = 0.5, legend.show = FALSE, id = "curb_id", lwd = 4) +
+  tm_layout(title = "Weekly Prediction Summary by Curbs, from January to March, 2025")
+
+tm9 + tm_view(set.view=14)
+
+```

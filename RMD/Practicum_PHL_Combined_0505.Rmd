@@ -1476,4 +1476,3 @@ tm9 <- tm_shape(data, name="Monday") +
 tm9 + tm_view(set.view=14)
 
 ```
-
